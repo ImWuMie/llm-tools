@@ -1,0 +1,10 @@
+# Sample default-format dataset.
+# Odd lines are user turns, even lines are assistant turns.
+# Empty lines and `#` comments are skipped by default.
+
+你好
+你好！我是助手，有什么可以帮你？
+什么是LoRA？
+LoRA是一种参数高效微调方法，通过低秩矩阵适配大模型。
+请用一句话总结QLoRA。
+QLoRA在4bit量化基础上使用LoRA，从而在更少显存上微调大模型。

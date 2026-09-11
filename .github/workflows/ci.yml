@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Sync core + dev extras
+        run: uv sync --extra dev
+      - name: Unit tests
+        run: uv run pytest
+      - name: Compile scripts
+        run: uv run python -m compileall scripts tests examples
+      - name: Offline self-check
+        run: uv run python scripts/selfcheck.py --offline
+      - name: CLI help smoke
+        run: |
+          uv run python scripts/download_model.py --help
+          uv run python scripts/start_vllm.py --help
+          uv run python scripts/train.py --help
+          uv run python scripts/start_vllm_trained.py --help
+          uv run python scripts/stop_vllm.py --help
+          uv run python scripts/merge_lora.py --help

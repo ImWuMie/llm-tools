@@ -1,0 +1,57 @@
+# Secrets and local env
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Caches
+.cache/
+hf_cache/
+.huggingface/
+.modelscope/
+
+# Runtime artifacts
+logs/*
+!logs/.gitkeep
+run/*
+!run/.gitkeep
+*.log
+*.pid
+
+# Models and training outputs
+models/**
+!models/base/
+!models/base/.gitkeep
+training/output/**
+!training/output/.gitkeep
+training/data/processed/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Weight files that should never be committed
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.npz

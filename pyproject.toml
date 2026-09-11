@@ -1,0 +1,62 @@
+[project]
+name = "llm-tools"
+version = "0.1.0"
+description = "Cross-platform LLM toolchain for model download, vLLM serving, LoRA/QLoRA training, and evaluation."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "LLM Tools" }]
+dependencies = [
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.8.0",
+    "requests>=2.32.0",
+    "openai>=1.51.0",
+    "psutil>=6.0.0",
+    "tqdm>=4.66.5",
+    "huggingface_hub>=0.25.0",
+    "packaging>=24.1",
+    "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+download = [
+    "huggingface_hub>=0.25.0",
+    "hf_transfer>=0.1.8",
+    "modelscope>=1.20.0",
+]
+train = [
+    "torch>=2.4.0",
+    "transformers>=4.45.0",
+    "datasets>=3.0.0",
+    "peft>=0.13.0",
+    "trl>=0.12.0",
+    "accelerate>=1.0.0",
+    "safetensors>=0.4.5",
+    "sentencepiece>=0.2.0",
+    "protobuf>=5.28.0",
+    "bitsandbytes>=0.44.0; sys_platform == 'linux'",
+]
+infer = [
+    "vllm>=0.6.3; sys_platform == 'linux'",
+]
+dev = [
+    "pytest>=8.3.0",
+    "ruff>=0.6.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = [".", "scripts"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["scripts", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008"]

@@ -1,0 +1,51 @@
+services:
+  vllm:
+    build: .
+    image: llm-tools:local
+    env_file:
+      - .env
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    volumes:
+      - ./models:/app/models
+      - ./training:/app/training
+      - ./logs:/app/logs
+      - ./run:/app/run
+      - ./.env:/app/.env:ro
+    ipc: host
+    shm_size: 8gb
+    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["uv", "run", "python", "scripts/start_vllm.py", "--foreground"]
+
+  train:
+    build: .
+    image: llm-tools:local
+    env_file:
+      - .env
+    profiles: ["train"]
+    volumes:
+      - ./models:/app/models
+      - ./training:/app/training
+      - ./logs:/app/logs
+    ipc: host
+    shm_size: 8gb
+    gpus: all
+    command:
+      [
+        "uv",
+        "run",
+        "python",
+        "scripts/train.py",
+        "--data",
+        "training/data/sample.txt",
+        "--data-format",
+        "default",
+        "--update-env"
+      ]

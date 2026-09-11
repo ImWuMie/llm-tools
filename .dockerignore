@@ -1,0 +1,15 @@
+.git
+.venv
+.env
+models
+training/output
+training/data/processed
+logs
+run
+__pycache__
+.pytest_cache
+.ruff_cache
+*.pyc
+*.safetensors
+*.bin
+*.gguf
