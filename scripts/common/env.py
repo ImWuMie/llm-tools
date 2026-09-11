@@ -12,6 +12,7 @@ from .bootstrap import PROJECT_ROOT
 from .logging_utils import setup_logging
 from .paths import ensure_dir, resolve_path
 from .secrets import redact_mapping
+from .schema import SchemaError, raise_if_errors, validate_env_values
 
 LOGGER = setup_logging("llm_tools.env")
 
@@ -143,7 +144,23 @@ def load_app_config(project_root: Path | None = None, copy_if_missing: bool = Tr
         else:
             values[key] = str(value)
             os.environ.setdefault(key, str(value))
-    return AppConfig(values=values, env_path=path, project_root=root)
+    config = AppConfig(values=values, env_path=path, project_root=root)
+    try:
+        validate_loaded_config(config)
+    except SchemaError as exc:
+        raise ConfigError(str(exc)) from exc
+    return config
+
+
+def validate_loaded_config(config: AppConfig) -> None:
+    strict = config.get_bool("CONFIG_STRICT", False)
+    problems = validate_env_values(config.values, strict=strict)
+    for item in problems:
+        if item.startswith("warning:"):
+            LOGGER.warning("%s", item)
+        else:
+            LOGGER.error("%s", item)
+    raise_if_errors(problems, label=str(config.env_path))
 
 
 def upsert_env_key(path: Path, key: str, value: str) -> None:
@@ -184,3 +201,7 @@ def apply_runtime_env(config: AppConfig) -> None:
         os.environ["MODELSCOPE_ENDPOINT"] = ms_endpoint
     ensure_dir(config.require_path("LOG_DIR") if config.get("LOG_DIR") else config.project_root / "logs")
     ensure_dir(config.require_path("PID_DIR") if config.get("PID_DIR") else config.project_root / "run")
+    try:
+        validate_loaded_config(config)
+    except SchemaError as exc:
+        raise ConfigError(str(exc)) from exc

@@ -18,6 +18,9 @@ htmlcov/
 dist/
 build/
 
+.tmp/
+.pytest_work/
+
 # Caches
 .cache/
 hf_cache/

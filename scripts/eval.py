@@ -14,8 +14,21 @@ from common.data_format import DataOptions, parse_training_file
 from common.env import ConfigError, load_app_config
 from common.health import check_openai_models
 from common.logging_utils import setup_logging
+from common.metrics import assistant_turns, bleu, exact_match, length_ratio, rouge_l, token_f1
+from datetime import datetime, timezone
 
 LOGGER = setup_logging("llm_tools.eval")
+
+
+def _write_eval(metrics: dict, output: str | None, default_dir: Path) -> Path:
+    default_dir.mkdir(parents=True, exist_ok=True)
+    path = Path(output) if output else default_dir / f"eval-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    LOGGER.info("Wrote eval report to %s", path)
+    return path
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,30 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--remote", action="store_true", help="Query the running OpenAI-compatible server.")
     parser.add_argument("--max-samples", type=int, default=5)
     parser.add_argument("--model", default=None)
+    parser.add_argument("--output", default=None, help="Write JSON metrics to this path. Default logs/eval/.")
     return parser.parse_args()
-
-
-def exact_match(pred: str, gold: str) -> float:
-    return 1.0 if pred.strip() == gold.strip() else 0.0
-
-
-def length_ratio(pred: str, gold: str) -> float:
-    if not gold:
-        return 0.0
-    return min(len(pred), len(gold)) / max(len(pred), len(gold), 1)
-
-
-def last_assistant(messages: list[dict[str, str]]) -> str:
-    for item in reversed(messages):
-        if item["role"] == "assistant":
-            return item["content"]
-    return ""
-
-
-def prompt_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    if messages and messages[-1]["role"] == "assistant":
-        return messages[:-1]
-    return messages
 
 
 def main() -> int:
@@ -64,9 +55,14 @@ def main() -> int:
             "conversion": report.as_dict(),
             "exact_match": None,
             "length_ratio": None,
+            "token_f1": None,
+            "bleu": None,
+            "rouge_l": None,
+            "turns": 0,
         }
         if not args.remote:
-            LOGGER.info("Offline eval only checks conversion quality. Pass --remote to query vLLM.")
+            LOGGER.info("Offline eval only checks conversion quality. Pass --remote to query the server.")
+            _write_eval(metrics, args.output, PROJECT_ROOT / "logs" / "eval")
             print(json.dumps(metrics, ensure_ascii=False, indent=2))
             return 0
 
@@ -88,16 +84,31 @@ def main() -> int:
         client = OpenAI(base_url=f"http://{check_host}:{port}/v1", api_key=api_key)
         scores_em: list[float] = []
         scores_len: list[float] = []
+        scores_f1: list[float] = []
+        scores_bleu: list[float] = []
+        scores_rouge: list[float] = []
+        turns = 0
         for sample in samples[: args.max_samples]:
-            gold = last_assistant(sample)
-            prompt = prompt_messages(sample)
-            completion = client.chat.completions.create(model=model_name, messages=prompt, temperature=0)
-            pred = completion.choices[0].message.content or ""
-            scores_em.append(exact_match(pred, gold))
-            scores_len.append(length_ratio(pred, gold))
-            LOGGER.info("gold=%r pred=%r", gold[:120], pred[:120])
-        metrics["exact_match"] = sum(scores_em) / len(scores_em) if scores_em else None
-        metrics["length_ratio"] = sum(scores_len) / len(scores_len) if scores_len else None
+            for prompt, gold in assistant_turns(sample):
+                completion = client.chat.completions.create(model=model_name, messages=prompt, temperature=0)
+                pred = completion.choices[0].message.content or ""
+                scores_em.append(exact_match(pred, gold))
+                scores_len.append(length_ratio(pred, gold))
+                scores_f1.append(token_f1(pred, gold))
+                scores_bleu.append(bleu(pred, gold))
+                scores_rouge.append(rouge_l(pred, gold))
+                turns += 1
+                LOGGER.info("gold=%r pred=%r", gold[:120], pred[:120])
+        def avg(values: list[float]) -> float | None:
+            return sum(values) / len(values) if values else None
+
+        metrics["turns"] = turns
+        metrics["exact_match"] = avg(scores_em)
+        metrics["length_ratio"] = avg(scores_len)
+        metrics["token_f1"] = avg(scores_f1)
+        metrics["bleu"] = avg(scores_bleu)
+        metrics["rouge_l"] = avg(scores_rouge)
+        _write_eval(metrics, args.output, PROJECT_ROOT / "logs" / "eval")
         print(json.dumps(metrics, ensure_ascii=False, indent=2))
         return 0
     except (ConfigError, Exception) as exc:

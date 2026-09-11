@@ -41,6 +41,24 @@ train = [
 infer = [
     "vllm>=0.6.3; sys_platform == 'linux'",
 ]
+infer-hf = [
+    "torch>=2.4.0",
+    "transformers>=4.45.0",
+    "accelerate>=1.0.0",
+    "peft>=0.13.0",
+    "safetensors>=0.4.5",
+]
+webui = [
+    "gradio>=4.44.0",
+]
+eval = [
+    "sacrebleu>=2.4.0",
+    "rouge-score>=0.1.2",
+]
+report = [
+    "tensorboard>=2.17.0",
+    "wandb>=0.18.0",
+]
 dev = [
     "pytest>=8.3.0",
     "ruff>=0.6.0",

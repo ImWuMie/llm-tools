@@ -30,6 +30,7 @@ uv sync --extra download             # Hugging Face + ModelScope
 uv sync --extra download --extra train
 uv sync --extra download --extra train --extra infer   # 仅 Linux / WSL / Docker
 uv sync --extra download --extra dev
+uv sync --extra infer-hf --extra webui --extra eval
 ```
 
 | Extra | 包含的包 | 用途 |
@@ -38,6 +39,10 @@ uv sync --extra download --extra dev
 | `download` | hf_transfer, modelscope | `download_model.py` |
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes（Linux） | `train.py`、`merge_lora.py` |
 | `infer` | vllm（仅 Linux marker） | `start_vllm.py` |
+| `infer-hf` | torch, transformers, peft | `start_hf.py` / `--engine hf` |
+| `webui` | gradio | `examples/webui.py` |
+| `eval` | sacrebleu, rouge-score | 更完整的评测指标 |
+| `report` | tensorboard, wandb | 训练 `report_to` |
 | `dev` | pytest, ruff | 测试 |
 
 如果缺少 `.env`，脚本会从 `.env_example` 自动复制。下载或启动服务前请先编辑。
@@ -146,6 +151,8 @@ uv run python scripts\download_model.py --source auto --update-env
 | `--force` | 删除后重新下载 |
 | `--dry-run` | 只打印计划，不下载 |
 | `--update-env` | 把 `MODEL_DIR` 写回 `.env` |
+| `--data-source` | `auto` / `local` / `hf` / `modelscope` |
+| `--data-split` | hub split，默认 `train` |
 
 行为：
 
@@ -228,6 +235,44 @@ Python（常见为 3.12）、CUDA、GPU 架构必须与 wheel 一致。像 `Spar
 这种自定义结构，即便 Windows 包能装上，vLLM 也不一定能加载。
 
 ---
+
+
+---
+
+## 4.2 Transformers 回退 / 量化导出 / WebUI
+
+自定义结构（例如 `Spark2_5ForCausalLM`）请走 transformers 服务：
+
+```bash
+uv sync --extra infer-hf
+uv run python scripts/start_vllm.py --daemon --engine hf
+# 或
+uv run python scripts/start_hf.py --daemon
+uv run python scripts/stop_vllm.py --service hf
+```
+
+`INFER_ENGINE=auto`：架构看起来被 vLLM 支持时走 vLLM，否则走 `hf`。
+
+量化导出（需自行安装转换器）：
+
+```bash
+uv run python scripts/export_quant.py --method gguf --dry-run
+uv run python scripts/export_quant.py --method awq --update-env
+```
+
+WebUI：
+
+```bash
+uv sync --extra webui
+uv run python examples/webui.py
+```
+
+Windows 社区 wheel（不会自动挑选 CUDA 版本）：
+
+```powershell
+uv run python scripts\install_vllm_windows.py --check
+uv run python scripts\install_vllm_windows.py --install --wheel-url https://example.invalid/vllm.whl --yes --write-env
+```
 
 ## 5. 训练
 

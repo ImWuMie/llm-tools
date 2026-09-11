@@ -44,6 +44,7 @@ docker compose up vllm
 # optional unofficial native wheel:
 uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\start_vllm.py --daemon --native
+uv run python scripts\start_vllm.py --daemon --engine hf
 ```
 
 See [USAGES.md](USAGES.md) for every command, flag, and environment variable. Chinese: [USAGES_zh.md](USAGES_zh.md).
@@ -99,6 +100,10 @@ Tokens (`HF_TOKEN`, `MODELSCOPE_API_TOKEN`, `VLLM_API_KEY`) are never printed in
 | `download` | `hf_transfer`, `modelscope` | model download |
 | `train` | torch, transformers, peft, trl, accelerate | LoRA / QLoRA |
 | `infer` | vLLM (Linux only) | serving |
+| `infer-hf` | transformers fallback server | custom architectures / native Windows |
+| `webui` | Gradio | `examples/webui.py` |
+| `eval` | sacrebleu, rouge-score | richer `eval.py` metrics |
+| `report` | tensorboard, wandb | training `report_to` |
 | `dev` | pytest, ruff | tests |
 
 ```bash
@@ -106,6 +111,7 @@ uv sync --extra download
 uv sync --extra download --extra train
 uv sync --extra download --extra train --extra infer   # Linux / WSL / Docker
 uv sync --extra download --extra dev
+uv sync --extra infer-hf --extra webui --extra eval
 ```
 
 If `modelscope` conflicts with torch / vLLM, keep download in a dedicated environment or use Docker for infer/train.

@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import shutil
+import subprocess
 
 from common.bootstrap import ensure_sys_path
 
@@ -43,7 +45,33 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="If native import works, set VLLM_WINDOWS_BACKEND=native in .env.",
     )
+    parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Install a community Windows wheel from --wheel-url into this environment.",
+    )
+    parser.add_argument(
+        "--wheel-url",
+        default=None,
+        help="Direct .whl URL from a vllm-windows GitHub release.",
+    )
+    parser.add_argument("--yes", action="store_true", help="Required to actually pip-install --wheel-url.")
     return parser.parse_args()
+
+
+COMMUNITY_RELEASES = (
+    "https://github.com/SystemPanic/vllm-windows/releases",
+    "https://github.com/devnen/vllm-windows/releases",
+    "https://github.com/aivrar/vllm-windows-build/releases",
+)
+
+
+def _install_wheel(url: str) -> int:
+    uv = shutil.which("uv")
+    cmd = [uv, "pip", "install", url] if uv else [sys.executable, "-m", "pip", "install", url]
+    LOGGER.info("Installing community wheel: %s", url)
+    completed = subprocess.run(cmd, check=False)
+    return completed.returncode
 
 
 def _python_info() -> dict[str, object]:
@@ -104,9 +132,39 @@ def main() -> int:
     print(windows_vllm_hint())
     print()
     print(native_windows_vllm_guide())
+    print()
+    print("Community release pages:")
+    for url in COMMUNITY_RELEASES:
+        print(f"  {url}")
 
     if not is_windows():
         LOGGER.info("This helper is for native Windows. Current platform=%s.", platform_name())
+        if args.install:
+            LOGGER.error("--install is only supported on native Windows.")
+            return 1
+        return 0
+
+    if args.install:
+        if not args.wheel_url:
+            LOGGER.error(
+                "--install requires --wheel-url pointing at a matching community .whl. "
+                "Pick one from the release pages above. This repo will not auto-select a CUDA/Python wheel."
+            )
+            return 1
+        if not args.yes:
+            LOGGER.error("Refusing to install without --yes. Re-run with --install --wheel-url URL --yes.")
+            return 1
+        code = _install_wheel(args.wheel_url)
+        if code != 0:
+            return code
+        ok, detail = probe_vllm_import()
+        LOGGER.info("After install: importable=%s %s", ok, detail)
+        if not ok:
+            return 1
+        if args.write_env:
+            config = load_app_config()
+            upsert_env_key(config.env_path, "VLLM_WINDOWS_BACKEND", "native")
+            LOGGER.info("Updated %s: VLLM_WINDOWS_BACKEND=native", config.env_path)
         return 0
 
     if args.write_env:

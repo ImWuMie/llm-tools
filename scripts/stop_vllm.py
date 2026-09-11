@@ -18,7 +18,7 @@ LOGGER = setup_logging("llm_tools.stop_vllm")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stop vLLM processes started by this toolchain.")
-    parser.add_argument("--service", choices=["vllm", "vllm_trained", "all"], default="all")
+    parser.add_argument("--service", choices=["vllm", "vllm_trained", "hf", "all"], default="all")
     parser.add_argument("--pid-file", default=None)
     parser.add_argument("--timeout", type=float, default=20.0)
     return parser.parse_args()
@@ -46,7 +46,7 @@ def main() -> int:
         pid_dir = config.require_path("PID_DIR")
         if args.pid_file:
             return stop_one(Path(args.pid_file), args.timeout)
-        names = ["vllm", "vllm_trained"] if args.service == "all" else [args.service]
+        names = ["vllm", "vllm_trained", "hf"] if args.service == "all" else [args.service]
         code = 0
         for name in names:
             code = max(code, stop_one(pid_file(pid_dir, name), args.timeout))

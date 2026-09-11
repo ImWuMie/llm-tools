@@ -32,6 +32,7 @@ from .process import (
 )
 from .secrets import redact_command
 from .validate_model import looks_like_lora, looks_like_merged_model, validate_local_model
+from .preflight import run_preflight
 
 LOGGER = setup_logging("llm_tools.vllm")
 
@@ -58,6 +59,55 @@ def cli_windows_backend(
     if selected:
         return selected[0], False
     return None, False
+
+
+def resolve_infer_engine(config: AppConfig, model_path: Path, requested: str | None = None) -> str:
+    engine = (requested or config.get("INFER_ENGINE") or "auto").strip().lower()
+    report = run_preflight(
+        model_path,
+        max_model_len=int(config.get("MAX_MODEL_LEN") or 4096),
+        dtype=config.get("DTYPE"),
+        gpu_memory_utilization=float(config.get("GPU_MEMORY_UTILIZATION") or 0.9),
+    )
+    for warning in report.warnings:
+        LOGGER.warning("%s", warning)
+    if not report.ok:
+        raise VLLMLaunchError("Model failed preflight: " + "; ".join(report.problems))
+    if engine not in {"auto", "vllm", "hf"}:
+        raise VLLMLaunchError(f"Unknown INFER_ENGINE={engine}. Use auto / vllm / hf.")
+    if engine == "auto":
+        LOGGER.info("INFER_ENGINE=auto resolved to %s (model_type=%s)", report.engine_hint, report.model_type)
+        return report.engine_hint
+    if engine == "vllm" and report.engine_hint == "hf":
+        LOGGER.warning(
+            "INFER_ENGINE=vllm was requested, but this architecture looks custom. "
+            "If startup fails, rerun with --engine hf."
+        )
+    return engine
+
+
+def launch_hf_fallback(
+    config: AppConfig,
+    model_path: Path,
+    *,
+    daemon: bool,
+    adapter_path: Path | None = None,
+    service_name: str = "vllm",
+) -> int:
+    cmd = [
+        current_python(),
+        str(PROJECT_ROOT / "scripts" / "start_hf.py"),
+        "--daemon" if daemon else "--foreground",
+        "--model-dir",
+        str(model_path),
+        "--service-name",
+        service_name,
+    ]
+    if adapter_path is not None:
+        cmd += ["--adapter-path", str(adapter_path)]
+    LOGGER.info("Dispatching to transformers fallback: %s", " ".join(redact_command(cmd)))
+    completed = subprocess.run(cmd, cwd=str(PROJECT_ROOT), check=False)
+    return completed.returncode
 
 
 def _optional_flag(flag: str, value: str | None) -> list[str]:
@@ -233,6 +283,7 @@ def start_vllm_server(
     lora_modules: dict[str, Path] | None = None,
     windows_backend: str | None = None,
     force_native: bool = False,
+    engine: str | None = None,
 ) -> int:
     problems = validate_local_model(model_path)
     if problems and not lora_modules:
@@ -262,6 +313,19 @@ def start_vllm_server(
     existing = read_pid(pid_file(pid_dir, service_name))
     if existing and is_pid_running(existing):
         raise VLLMLaunchError(f"{service_name} already running as PID {existing}. Use stop_vllm.py first.")
+
+    chosen_engine = resolve_infer_engine(config, model_path, requested=engine)
+    if chosen_engine == "hf":
+        adapter = None
+        if lora_modules:
+            adapter = next(iter(lora_modules.values()))
+        return launch_hf_fallback(
+            config,
+            model_path,
+            daemon=daemon,
+            adapter_path=adapter,
+            service_name=service_name,
+        )
 
     requested_backend = windows_backend or config.get("VLLM_WINDOWS_BACKEND") or "wsl"
     if is_windows():

@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
         help="On Windows, use an already-installed community vLLM wheel in this Python env.",
     )
     parser.add_argument("--force-native", action="store_true", help="Skip Windows WSL/Docker redirection.")
+    parser.add_argument("--engine", choices=["auto", "vllm", "hf"], default=None, help="Serving engine. Default INFER_ENGINE from .env.")
     parser.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args forwarded to vLLM after `--`.")
     return parser.parse_args()
 
@@ -65,6 +66,7 @@ def main() -> int:
             extra_args=extra,
             windows_backend=backend,
             force_native=force_native,
+            engine=args.engine,
         )
     except (ConfigError, VLLMLaunchError) as exc:
         LOGGER.error("%s", exc)

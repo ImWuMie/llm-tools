@@ -21,6 +21,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
         "eval.py",
         "selfcheck.py",
         "install_vllm_windows.py",
+        "start_hf.py",
+        "export_quant.py",
     ],
 )
 def test_cli_help(script: str, capsys: pytest.CaptureFixture[str]) -> None:

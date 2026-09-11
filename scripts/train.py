@@ -12,12 +12,14 @@ from common.bootstrap import PROJECT_ROOT, ensure_sys_path
 
 ensure_sys_path()
 
-from common.data_format import DataFormatError, DataOptions, parse_training_file, write_processed_jsonl
+from common.data_format import DataFormatError, DataOptions
 from common.env import ConfigError, load_app_config, upsert_env_key
 from common.logging_utils import setup_logging
 from common.paths import resolve_path
 from common.platform_utils import is_windows
 from common.validate_model import validate_local_model
+from common.hub_data import materialize_training_data
+from common.schema import raise_if_errors, validate_train_config
 
 LOGGER = setup_logging("llm_tools.train")
 
@@ -34,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--resume-from-checkpoint", default=None)
     parser.add_argument("--update-env", action="store_true")
+    parser.add_argument("--data-source", choices=["auto", "local", "hf", "modelscope"], default="auto")
+    parser.add_argument("--data-split", default="train")
     return parser.parse_args()
 
 
@@ -274,11 +278,13 @@ def main() -> int:
         config = load_app_config()
         train_cfg_path = Path(args.config) if args.config else PROJECT_ROOT / "training" / "config.json"
         train_cfg = load_train_config(train_cfg_path)
-        data_path = Path(args.data)
-        if not data_path.is_absolute():
-            data_path = (PROJECT_ROOT / data_path).resolve()
-        if not data_path.exists():
-            raise ConfigError(f"Training data not found: {data_path}")
+        schema_problems = validate_train_config(train_cfg, strict=config.get_bool("CONFIG_STRICT", False))
+        for item in schema_problems:
+            if item.startswith("warning:"):
+                LOGGER.warning("%s", item)
+            else:
+                LOGGER.error("%s", item)
+        raise_if_errors(schema_problems, label=str(train_cfg_path))
 
         base_model = resolve_path(train_cfg.get("base_model"), PROJECT_ROOT) or config.get_path("BASE_MODEL")
         if base_model is None:
@@ -307,12 +313,19 @@ def main() -> int:
             LOGGER.info("system_prompt.txt is empty; no system message will be added.")
 
         options = data_options_from_config(train_cfg, system_prompt)
-        samples, report = parse_training_file(data_path, args.data_format, options)
-        processed_dir = PROJECT_ROOT / "training" / "data" / "processed"
-        processed_path = processed_dir / f"{data_path.stem}.jsonl"
-        write_processed_jsonl(samples, processed_path)
-        LOGGER.info("Data conversion report: %s", json.dumps(report.as_dict(), ensure_ascii=False))
-        LOGGER.info("Wrote processed dataset to %s (%s samples)", processed_path, report.samples)
+        try:
+            samples, processed_path = materialize_training_data(
+                args.data,
+                data_format=args.data_format,
+                options=options,
+                project_root=PROJECT_ROOT,
+                source=args.data_source,
+                split=args.data_split,
+                hf_token=config.get("HF_TOKEN"),
+            )
+        except DataFormatError as exc:
+            raise ConfigError(str(exc)) from exc
+        LOGGER.info("Using processed dataset %s (%s samples)", processed_path, len(samples))
 
         try:
             from datasets import Dataset
@@ -346,6 +359,9 @@ def main() -> int:
             resume = None
 
         LOGGER.info("Starting training output_dir=%s resume=%s", output_dir, resume)
+        report_to = str(train_cfg.get("report_to") or "none")
+        if report_to not in {"", "none"}:
+            LOGGER.info("Training report_to=%s (install extra `report` for tensorboard/wandb).", report_to)
         trainer.train(resume_from_checkpoint=resume)
         trainer.save_model(str(output_dir))
         tokenizer.save_pretrained(str(output_dir))

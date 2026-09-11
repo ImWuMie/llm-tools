@@ -34,3 +34,13 @@ jobs:
           uv run python scripts/start_vllm_trained.py --help
           uv run python scripts/stop_vllm.py --help
           uv run python scripts/merge_lora.py --help
+          uv run python scripts/start_hf.py --help
+          uv run python scripts/export_quant.py --help
+          uv run python scripts/eval.py --help
+          uv run python scripts/selfcheck.py --help
+          uv run python scripts/install_vllm_windows.py --help
+      - name: Offline dry-run smoke
+        run: |
+          uv run python scripts/download_model.py --source auto --dry-run
+          uv run python scripts/eval.py --data training/data/sample.txt --data-format default
+          uv run python scripts/export_quant.py --method gguf --dry-run

@@ -14,6 +14,7 @@ from common.env import ConfigError, apply_runtime_env, load_app_config, upsert_e
 from common.logging_utils import setup_logging
 from common.secrets import mask_secret
 from common.validate_model import is_valid_local_model, validate_local_model
+from common.license_check import inspect_license
 from model_sources import DownloadRequest, SourceError, get_source, resolve_source_order
 
 LOGGER = setup_logging("llm_tools.download")
@@ -34,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true", help="Re-download even if a valid local model exists.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--update-env", action="store_true", help="Write MODEL_DIR back to .env on success.")
+    parser.add_argument("--skip-license-check", action="store_true")
     return parser.parse_args()
 
 
@@ -150,6 +152,13 @@ def main() -> int:
         LOGGER.info("Resolved download order=%s output_dir=%s", order, output_dir)
 
         if maybe_skip(output_dir, args.force):
+            if not args.skip_license_check:
+                report = inspect_license(output_dir)
+                for warning in report.warnings:
+                    LOGGER.warning("%s", warning)
+                if config.get_bool("LICENSE_STRICT", False) and report.commercial_ok is False:
+                    LOGGER.error("LICENSE_STRICT=1 and the model license looks restricted.")
+                    return 1
             print(output_dir)
             return 0
         if args.force and output_dir.exists() and not args.dry_run:
@@ -168,6 +177,15 @@ def main() -> int:
                 if problems:
                     raise SourceError(f"Download from {name} completed but validation failed: {'; '.join(problems)}")
                 LOGGER.info("Download succeeded via %s. Local path: %s", name, downloaded)
+                if not args.skip_license_check:
+                    license_report = inspect_license(downloaded)
+                    for warning in license_report.warnings:
+                        LOGGER.warning("%s", warning)
+                    if config.get_bool("LICENSE_STRICT", False) and license_report.commercial_ok is False:
+                        raise SourceError(
+                            "LICENSE_STRICT=1 and the downloaded model license looks non-commercial or restricted. "
+                            "Review the model card or rerun with --skip-license-check."
+                        )
                 LOGGER.info("Point MODEL_DIR at this path if you want vLLM to load it by default.")
                 if args.update_env:
                     rel = Path(downloaded)

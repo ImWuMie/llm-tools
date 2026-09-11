@@ -25,6 +25,8 @@ from common.platform_utils import (
 )
 from common.process import port_in_use
 from model_sources import resolve_source_order
+from common.schema import validate_env_values, validate_train_config
+from common.preflight import run_preflight
 
 LOGGER = setup_logging("llm_tools.selfcheck")
 
@@ -95,6 +97,20 @@ def main() -> int:
                 f"requested={requested} resolved={resolved}",
             )
         )
+    if config is not None:
+        engine = config.get("INFER_ENGINE") or "auto"
+        results.append(check("infer engine", True, engine))
+        env_problems = [item for item in validate_env_values(config.values) if not item.startswith("warning:")]
+        results.append(check("env schema", not env_problems, "; ".join(env_problems) or "ok"))
+        train_cfg_path = PROJECT_ROOT / "training" / "config.json"
+        if train_cfg_path.exists():
+            payload = json.loads(train_cfg_path.read_text(encoding="utf-8"))
+            train_problems = [item for item in validate_train_config(payload) if not item.startswith("warning:")]
+            results.append(check("train schema", not train_problems, "; ".join(train_problems) or "ok"))
+        model_dir = config.get_path("MODEL_DIR")
+        if model_dir and (model_dir / "config.json").is_file():
+            report = run_preflight(model_dir)
+            results.append(check("preflight", report.ok, f"engine_hint={report.engine_hint} type={report.model_type}"))
     if not args.offline:
         results.append(check("cuda", True, f"visible={cuda_visible()}"))
 

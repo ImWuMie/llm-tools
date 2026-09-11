@@ -30,6 +30,7 @@ uv sync --extra download             # Hugging Face + ModelScope
 uv sync --extra download --extra train
 uv sync --extra download --extra train --extra infer   # Linux / WSL / Docker only
 uv sync --extra download --extra dev
+uv sync --extra infer-hf --extra webui --extra eval
 ```
 
 | Extra | Packages | Use |
@@ -38,6 +39,10 @@ uv sync --extra download --extra dev
 | `download` | hf_transfer, modelscope | `download_model.py` |
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes (Linux) | `train.py`, `merge_lora.py` |
 | `infer` | vllm (Linux marker) | `start_vllm.py` |
+| `infer-hf` | torch, transformers, peft | `start_hf.py` / `--engine hf` |
+| `webui` | gradio | `examples/webui.py` |
+| `eval` | sacrebleu, rouge-score | richer metrics |
+| `report` | tensorboard, wandb | training `report_to` |
 | `dev` | pytest, ruff | tests |
 
 If `.env` is missing, scripts copy `.env_example` automatically. Edit it before downloading or serving.
@@ -146,6 +151,8 @@ uv run python scripts\download_model.py --source auto --update-env
 | `--force` | delete and re-download |
 | `--dry-run` | print plan, do not download |
 | `--update-env` | write `MODEL_DIR` back to `.env` |
+| `--data-source` | `auto` / `local` / `hf` / `modelscope` |
+| `--data-split` | hub split, default `train` |
 
 Behavior:
 
@@ -228,6 +235,44 @@ Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures
 `Spark2_5ForCausalLM` may still fail even after a successful Windows install.
 
 ---
+
+
+---
+
+## 4.2 Transformers fallback / export / WebUI
+
+Custom architectures (for example `Spark2_5ForCausalLM`) should use the transformers server:
+
+```bash
+uv sync --extra infer-hf
+uv run python scripts/start_vllm.py --daemon --engine hf
+# or
+uv run python scripts/start_hf.py --daemon
+uv run python scripts/stop_vllm.py --service hf
+```
+
+`INFER_ENGINE=auto` picks vLLM when `model_type` looks supported, otherwise `hf`.
+
+Quantized export (converters must already be installed):
+
+```bash
+uv run python scripts/export_quant.py --method gguf --dry-run
+uv run python scripts/export_quant.py --method awq --update-env
+```
+
+WebUI:
+
+```bash
+uv sync --extra webui
+uv run python examples/webui.py
+```
+
+Windows community wheel install (never auto-selected):
+
+```powershell
+uv run python scripts\install_vllm_windows.py --check
+uv run python scripts\install_vllm_windows.py --install --wheel-url https://example.invalid/vllm.whl --yes --write-env
+```
 
 ## 5. Train
 

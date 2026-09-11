@@ -44,6 +44,7 @@ docker compose up vllm
 # 可选：非官方原生 wheel
 uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\start_vllm.py --daemon --native
+uv run python scripts\start_vllm.py --daemon --engine hf
 ```
 
 全部命令、参数、环境变量见 [USAGES_zh.md](USAGES_zh.md)。英文版：[USAGES.md](USAGES.md)。
@@ -99,6 +100,10 @@ uv run python scripts\start_vllm.py --daemon --native
 | `download` | `hf_transfer`、`modelscope` | 模型下载 |
 | `train` | torch、transformers、peft、trl、accelerate | LoRA / QLoRA |
 | `infer` | vLLM（仅 Linux） | 推理服务 |
+| `infer-hf` | transformers 回退服务 | 自定义结构 / 原生 Windows |
+| `webui` | Gradio | `examples/webui.py` |
+| `eval` | sacrebleu, rouge-score | 更完整的 `eval.py` 指标 |
+| `report` | tensorboard, wandb | 训练 `report_to` |
 | `dev` | pytest、ruff | 测试 |
 
 ```bash
@@ -106,6 +111,7 @@ uv sync --extra download
 uv sync --extra download --extra train
 uv sync --extra download --extra train --extra infer   # Linux / WSL / Docker
 uv sync --extra download --extra dev
+uv sync --extra infer-hf --extra webui --extra eval
 ```
 
 如果 `modelscope` 与 torch / vLLM 冲突，请把下载放到独立环境，或用 Docker 跑推理和训练。
