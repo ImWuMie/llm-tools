@@ -13,7 +13,7 @@ Minimum platforms: **Windows 10+** and **Linux**. Core logic is Python; `.sh` / 
 >
 > Optional unofficial path: install a community `vllm-windows` wheel, then `uv run python scripts/start_vllm.py --native` or set `VLLM_WINDOWS_BACKEND=native|auto`. Check with `uv run python scripts/install_vllm_windows.py --check`.
 
-[中文文档](README_zh.md) · [Usage reference](USAGES.md)
+[中文文档](README_zh.md) · [Usage](USAGES.md) · [中文用法](USAGES_zh.md)
 
 ## Features
 
@@ -46,7 +46,7 @@ uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\start_vllm.py --daemon --native
 ```
 
-See [USAGES.md](USAGES.md) for every command, flag, and environment variable.
+See [USAGES.md](USAGES.md) for every command, flag, and environment variable. Chinese: [USAGES_zh.md](USAGES_zh.md).
 
 ## Layout
 
@@ -55,6 +55,8 @@ See [USAGES.md](USAGES.md) for every command, flag, and environment variable.
 ├── .env_example              # copy to .env (gitignored)
 ├── pyproject.toml
 ├── uv.lock
+├── USAGES.md                 # en-US command reference
+├── USAGES_zh.md              # zh-CN command reference
 ├── scripts/
 │   ├── download_model.py
 │   ├── start_vllm.py

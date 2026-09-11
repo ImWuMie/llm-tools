@@ -13,7 +13,7 @@
 >
 > 可选非官方路径：先安装社区 `vllm-windows` wheel，再执行 `uv run python scripts/start_vllm.py --native`，或设置 `VLLM_WINDOWS_BACKEND=native|auto`。检测命令：`uv run python scripts/install_vllm_windows.py --check`。
 
-[English README](README.md) · [完整用法](USAGES.md)
+[English README](README.md) · [完整用法](USAGES_zh.md) · [English usage](USAGES.md)
 
 ## 功能
 
@@ -46,7 +46,7 @@ uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\start_vllm.py --daemon --native
 ```
 
-全部命令、参数、环境变量见 [USAGES.md](USAGES.md)。
+全部命令、参数、环境变量见 [USAGES_zh.md](USAGES_zh.md)。英文版：[USAGES.md](USAGES.md)。
 
 ## 目录
 
@@ -55,6 +55,8 @@ uv run python scripts\start_vllm.py --daemon --native
 ├── .env_example              # 复制为 .env（不提交）
 ├── pyproject.toml
 ├── uv.lock
+├── USAGES.md                 # 英文用法
+├── USAGES_zh.md              # 中文用法
 ├── scripts/
 │   ├── download_model.py
 │   ├── start_vllm.py

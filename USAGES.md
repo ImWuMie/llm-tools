@@ -1,16 +1,14 @@
-# USAGES
+# Usage
 
-Complete command reference for LLM Tools.
+Complete command reference for LLM Tools (en-US).
 
-完整命令与参数说明。Overview: [README.md](README.md) · [README_zh.md](README_zh.md)
+[Chinese usage](USAGES_zh.md) · [README](README.md) · [Chinese README](README_zh.md)
 
 All Python scripts accept `--help`. Paths use `pathlib` and work on Windows and Linux. Logs never print tokens.
 
-所有 Python 脚本都支持 `--help`。路径按 Windows / Linux 兼容方式处理。日志不会打印 token。
-
 ---
 
-## 1. Install / 安装
+## 1. Install
 
 Install uv:
 
@@ -43,8 +41,6 @@ uv sync --extra download --extra dev
 | `dev` | pytest, ruff | tests |
 
 If `.env` is missing, scripts copy `.env_example` automatically. Edit it before downloading or serving.
-
-若 `.env` 不存在，脚本会从 `.env_example` 复制。下载或启动前请先编辑。
 
 ---
 
@@ -122,7 +118,7 @@ Point `MODEL_DIR` at that folder so serving does not care about the source.
 
 ---
 
-## 3. Download / 下载模型
+## 3. Download
 
 ```bash
 uv run python scripts/download_model.py --source hf
@@ -162,7 +158,7 @@ Behavior:
 
 ---
 
-## 4. Serve base model / 启动基座模型
+## 4. Serve base model
 
 ```bash
 uv run python scripts/start_vllm.py --daemon
@@ -209,13 +205,10 @@ On Windows, the script uses `VLLM_WINDOWS_BACKEND` unless `--wsl` / `--docker` /
 
 ---
 
-## 4.1 Optional native Windows vLLM / 可选原生 Windows 路径
+## 4.1 Optional native Windows vLLM
 
 Official vLLM does **not** support native Windows. The optional path is a community wheel
 (`vllm-windows`), installed **outside** `uv sync --extra infer` (that extra is Linux-only).
-
-官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（`vllm-windows`），不要装进
-`uv sync --extra infer`（这个 extra 只给 Linux）。
 
 ```powershell
 uv run python scripts\install_vllm_windows.py --check
@@ -234,12 +227,9 @@ Typical community builds:
 Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures such as
 `Spark2_5ForCausalLM` may still fail even after a successful Windows install.
 
-Python / CUDA / GPU 架构必须和 wheel 一致。像 `Spark2_5ForCausalLM` 这种自定义结构，
-即便 Windows 包能装上，vLLM 也不一定能加载。
-
 ---
 
-## 5. Train / 训练
+## 5. Train
 
 Default txt format (`training/data/sample.txt`):
 
@@ -301,7 +291,7 @@ Set `"save_merged_model": true` in `training/config.json` to merge after trainin
 **Alpaca**
 
 ```json
-{"instruction":"翻译","input":"hi","output":"你好"}
+{"instruction":"Translate","input":"hi","output":"hello"}
 ```
 
 **custom** keys are configured in `training/config.json`:
@@ -327,7 +317,7 @@ Empty-line / comment handling:
 
 ---
 
-## 6. Merge LoRA / 合并 adapter
+## 6. Merge LoRA
 
 ```bash
 uv run python scripts/merge_lora.py --update-env
@@ -349,7 +339,7 @@ If vLLM cannot enable LoRA, merge first, then serve in `merged` mode.
 
 ---
 
-## 7. Serve trained model / 启动训练后模型
+## 7. Serve trained model
 
 ```bash
 uv run python scripts/start_vllm_trained.py --daemon
@@ -376,12 +366,12 @@ PID / log files: `run/vllm_trained.pid`, `logs/vllm_trained.log`.
 
 ---
 
-## 8. Client examples / 调用示例
+## 8. Client examples
 
 Python helper:
 
 ```bash
-uv run python examples/chat.py --prompt "用一句话介绍 LoRA。"
+uv run python examples/chat.py --prompt "Explain LoRA in one sentence."
 uv run python examples/chat.py --stream --model trained
 uv run python examples/chat.py --system "You are a concise assistant." --prompt "Hi"
 ```
@@ -395,7 +385,7 @@ client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="sk-local")
 print(
     client.chat.completions.create(
         model="default",  # or "trained" for LoRA
-        messages=[{"role": "user", "content": "你好"}],
+        messages=[{"role": "user", "content": "Hello"}],
     )
     .choices[0]
     .message.content
@@ -409,7 +399,7 @@ bash examples/curl_chat.sh default
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk-local" \
-  -d '{"model":"default","messages":[{"role":"user","content":"你好"}]}'
+  -d '{"model":"default","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ```powershell
@@ -424,7 +414,7 @@ curl http://127.0.0.1:8000/v1/models -H "Authorization: Bearer sk-local"
 
 ---
 
-## 9. Eval and self-check / 评估与自检
+## 9. Eval and self-check
 
 ```bash
 # convert + stats only
@@ -480,7 +470,7 @@ Wrappers `cd` to the repo root, set `PYTHONUTF8=1`, and exec `uv run python ...`
 
 ---
 
-## 12. Troubleshooting / 故障排查
+## 12. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
@@ -497,7 +487,7 @@ Wrappers `cd` to the repo root, set `PYTHONUTF8=1`, and exec `uv run python ...`
 
 ---
 
-## 13. Acceptance commands / 验收命令
+## 13. Acceptance commands
 
 Linux:
 
