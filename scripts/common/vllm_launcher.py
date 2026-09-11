@@ -5,11 +5,20 @@ import subprocess
 from pathlib import Path
 
 from .bootstrap import PROJECT_ROOT
-from .env import AppConfig, ConfigError
+from .env import AppConfig
 from .health import check_openai_models
 from .logging_utils import setup_logging
 from .paths import to_wsl_path
-from .platform_utils import has_docker, has_wsl, is_windows, vllm_native_supported, windows_vllm_hint
+from .platform_utils import (
+    cuda_visible,
+    has_docker,
+    has_wsl,
+    is_windows,
+    native_windows_vllm_guide,
+    probe_vllm_import,
+    resolve_windows_vllm_backend,
+    windows_vllm_hint,
+)
 from .process import (
     current_python,
     is_pid_running,
@@ -29,6 +38,26 @@ LOGGER = setup_logging("llm_tools.vllm")
 
 class VLLMLaunchError(RuntimeError):
     pass
+
+
+def cli_windows_backend(
+    *,
+    wsl: bool = False,
+    docker: bool = False,
+    native: bool = False,
+    force_native: bool = False,
+) -> tuple[str | None, bool]:
+    selected = [name for flag, name in ((wsl, "wsl"), (docker, "docker"), (native, "native")) if flag]
+    if len(selected) > 1:
+        raise VLLMLaunchError(
+            f"Conflicting Windows backends: {', '.join(selected)}. "
+            "Choose one of --wsl / --docker / --native."
+        )
+    if native or force_native:
+        return "native", True
+    if selected:
+        return selected[0], False
+    return None, False
 
 
 def _optional_flag(flag: str, value: str | None) -> list[str]:
@@ -141,10 +170,14 @@ def ensure_vllm_importable() -> None:
     try:
         import vllm  # noqa: F401
     except Exception as exc:  # pragma: no cover - depends on extra
+        extra = ""
+        if is_windows():
+            extra = "\n" + native_windows_vllm_guide()
         raise VLLMLaunchError(
             "vLLM is not installed in this environment. "
-            "On Linux run `uv sync --extra infer`. On Windows use WSL2 or Docker.\n"
+            "On Linux run `uv sync --extra infer`. On Windows prefer WSL2 or Docker.\n"
             f"Import error: {exc}"
+            f"{extra}"
         ) from exc
 
 
@@ -230,17 +263,46 @@ def start_vllm_server(
     if existing and is_pid_running(existing):
         raise VLLMLaunchError(f"{service_name} already running as PID {existing}. Use stop_vllm.py first.")
 
-    backend = (windows_backend or config.get("VLLM_WINDOWS_BACKEND") or "wsl").strip().lower()
-    if is_windows() and not vllm_native_supported() and not force_native:
-        LOGGER.warning(windows_vllm_hint())
+    requested_backend = windows_backend or config.get("VLLM_WINDOWS_BACKEND") or "wsl"
+    if is_windows():
+        try:
+            backend = resolve_windows_vllm_backend(
+                requested_backend,
+                force_native=force_native,
+            )
+        except ValueError as exc:
+            raise VLLMLaunchError(str(exc)) from exc
+        LOGGER.info(
+            "Windows vLLM backend requested=%s resolved=%s force_native=%s",
+            requested_backend,
+            backend,
+            force_native,
+        )
         if backend == "docker":
+            LOGGER.warning(windows_vllm_hint())
             launch_via_docker()
             return 0
         if backend == "wsl":
+            LOGGER.warning(windows_vllm_hint())
             script = "scripts/start_vllm.py" if service_name == "vllm" else "scripts/start_vllm_trained.py"
             forwarded = [script, "--foreground" if not daemon else "--daemon", "--force-native"]
             return launch_via_wsl(forwarded)
-        raise VLLMLaunchError(windows_vllm_hint())
+        if backend == "fail":
+            raise VLLMLaunchError(windows_vllm_hint())
+        if backend != "native":
+            raise VLLMLaunchError(f"Unhandled Windows vLLM backend: {backend}")
+        LOGGER.warning(
+            "Using unofficial native Windows vLLM (community wheel). "
+            "Official support remains WSL2 or Docker."
+        )
+        ok, detail = probe_vllm_import()
+        if ok:
+            LOGGER.info("Native Windows vLLM import: %s", detail)
+        if not cuda_visible():
+            LOGGER.warning(
+                "torch.cuda is not visible in this environment. "
+                "A community Windows wheel still needs a matching NVIDIA driver + CUDA runtime."
+            )
 
     ensure_vllm_importable()
     python_executable = current_python()

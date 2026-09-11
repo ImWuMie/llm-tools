@@ -10,6 +10,8 @@
 最低支持 **Windows 10+** 和 **Linux**。核心逻辑全部在 Python 里；`.sh` / `.ps1` 只是薄包装。
 
 > **Windows 注意：** vLLM 没有完善的原生 Windows 支持。Windows 请通过 **WSL2** 或 **Docker** 启动推理。LoRA 训练可以原生尝试；QLoRA / bitsandbytes 在 Windows 上会自动降级为普通 LoRA。
+>
+> 可选非官方路径：先安装社区 `vllm-windows` wheel，再执行 `uv run python scripts/start_vllm.py --native`，或设置 `VLLM_WINDOWS_BACKEND=native|auto`。检测命令：`uv run python scripts/install_vllm_windows.py --check`。
 
 [English README](README.md) · [完整用法](USAGES.md)
 
@@ -39,6 +41,9 @@ Windows 推理：
 uv run python scripts\start_vllm.py --daemon --wsl
 # 或
 docker compose up vllm
+# 可选：非官方原生 wheel
+uv run python scripts\install_vllm_windows.py --check
+uv run python scripts\start_vllm.py --daemon --native
 ```
 
 全部命令、参数、环境变量见 [USAGES.md](USAGES.md)。
@@ -59,6 +64,7 @@ docker compose up vllm
 │   ├── merge_lora.py
 │   ├── eval.py
 │   ├── selfcheck.py
+│   ├── install_vllm_windows.py
 │   ├── model_sources/        # HF / ModelScope 适配层
 │   └── wrappers/             # bash + PowerShell
 ├── training/

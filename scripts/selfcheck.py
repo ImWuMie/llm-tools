@@ -5,7 +5,6 @@ import argparse
 import compileall
 import json
 import sys
-from pathlib import Path
 
 from common.bootstrap import PROJECT_ROOT, SCRIPTS_DIR, ensure_sys_path
 
@@ -14,7 +13,16 @@ ensure_sys_path()
 from common.data_format import DataOptions, parse_training_file
 from common.env import load_app_config
 from common.logging_utils import setup_logging
-from common.platform_utils import cuda_visible, has_docker, has_wsl, platform_name, vllm_native_supported
+from common.platform_utils import (
+    cuda_visible,
+    has_docker,
+    has_wsl,
+    is_windows,
+    platform_name,
+    probe_vllm_import,
+    resolve_windows_vllm_backend,
+    vllm_native_supported,
+)
 from common.process import port_in_use
 from model_sources import resolve_source_order
 
@@ -70,6 +78,23 @@ def main() -> int:
 
     results.append(check("platform", True, platform_name()))
     results.append(check("vllm native", True, f"supported={vllm_native_supported()} wsl={has_wsl()} docker={has_docker()}"))
+    importable, detail = probe_vllm_import()
+    results.append(check("vllm import", True, f"importable={importable} {detail}"))
+    if is_windows() and config is not None:
+        requested = config.get("VLLM_WINDOWS_BACKEND") or "wsl"
+        resolved = resolve_windows_vllm_backend(
+            requested,
+            vllm_importable=importable,
+            wsl_available=has_wsl(),
+            docker_available=has_docker(),
+        )
+        results.append(
+            check(
+                "windows vllm backend",
+                True,
+                f"requested={requested} resolved={resolved}",
+            )
+        )
     if not args.offline:
         results.append(check("cuda", True, f"visible={cuda_visible()}"))
 

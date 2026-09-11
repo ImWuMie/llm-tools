@@ -36,6 +36,8 @@ train = [
     "protobuf>=5.28.0",
     "bitsandbytes>=0.44.0; sys_platform == 'linux'",
 ]
+# Official vLLM wheels are Linux-only. Native Windows serving is an optional
+# community-wheel path; see scripts/install_vllm_windows.py and VLLM_WINDOWS_BACKEND.
 infer = [
     "vllm>=0.6.3; sys_platform == 'linux'",
 ]

@@ -10,6 +10,8 @@ Cross-platform toolchain for **downloading**, **serving**, **fine-tuning**, and 
 Minimum platforms: **Windows 10+** and **Linux**. Core logic is Python; `.sh` / `.ps1` files are thin wrappers.
 
 > **Windows note:** native vLLM support is incomplete. On Windows, start vLLM through **WSL2** or **Docker**. LoRA training can run natively; QLoRA / bitsandbytes is automatically disabled on Windows.
+>
+> Optional unofficial path: install a community `vllm-windows` wheel, then `uv run python scripts/start_vllm.py --native` or set `VLLM_WINDOWS_BACKEND=native|auto`. Check with `uv run python scripts/install_vllm_windows.py --check`.
 
 [中文文档](README_zh.md) · [Usage reference](USAGES.md)
 
@@ -39,6 +41,9 @@ Windows serving:
 uv run python scripts\start_vllm.py --daemon --wsl
 # or
 docker compose up vllm
+# optional unofficial native wheel:
+uv run python scripts\install_vllm_windows.py --check
+uv run python scripts\start_vllm.py --daemon --native
 ```
 
 See [USAGES.md](USAGES.md) for every command, flag, and environment variable.
@@ -59,6 +64,7 @@ See [USAGES.md](USAGES.md) for every command, flag, and environment variable.
 │   ├── merge_lora.py
 │   ├── eval.py
 │   ├── selfcheck.py
+│   ├── install_vllm_windows.py
 │   ├── model_sources/        # HF / ModelScope adapters
 │   └── wrappers/             # bash + PowerShell
 ├── training/

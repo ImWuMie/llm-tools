@@ -118,7 +118,7 @@ Point `MODEL_DIR` at that folder so serving does not care about the source.
 | `VLLM_TRUST_REMOTE_CODE` | `1` | needed by Qwen |
 | `VLLM_MAX_NUM_SEQS` | `16` | concurrent sequences |
 | `VLLM_HEALTH_TIMEOUT` | `180` | seconds to wait for `/v1/models` |
-| `VLLM_WINDOWS_BACKEND` | `wsl` | `wsl` / `docker` |
+| `VLLM_WINDOWS_BACKEND` | `wsl` | `wsl` / `docker` / `native` / `auto` / `fail` |
 
 ---
 
@@ -184,7 +184,8 @@ uv run python scripts\stop_vllm.py
 | `--host` / `--port` | override bind address |
 | `--wsl` | Windows: delegate to WSL2 |
 | `--docker` | Windows: `docker compose up vllm` |
-| `--force-native` | skip Windows redirection |
+| `--native` | Windows: unofficial community wheel in this Python env |
+| `--force-native` | alias of `--native`; skip WSL/Docker redirection |
 | extra after `--` | forwarded to vLLM |
 
 Startup checks:
@@ -203,7 +204,38 @@ uv run python scripts/stop_vllm.py --service vllm_trained
 uv run python scripts/stop_vllm.py --pid-file run/vllm.pid --timeout 20
 ```
 
-On Windows without `--force-native`, the script uses `VLLM_WINDOWS_BACKEND` (`wsl` or `docker`).
+On Windows, the script uses `VLLM_WINDOWS_BACKEND` unless `--wsl` / `--docker` / `--native` is passed.
+`auto` means: use native if `import vllm` works, else WSL2, else Docker.
+
+---
+
+## 4.1 Optional native Windows vLLM / 可选原生 Windows 路径
+
+Official vLLM does **not** support native Windows. The optional path is a community wheel
+(`vllm-windows`), installed **outside** `uv sync --extra infer` (that extra is Linux-only).
+
+官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（`vllm-windows`），不要装进
+`uv sync --extra infer`（这个 extra 只给 Linux）。
+
+```powershell
+uv run python scripts\install_vllm_windows.py --check
+# after a matching community wheel is installed in this env:
+uv run python scripts\install_vllm_windows.py --check --write-env
+uv run python scripts\start_vllm.py --daemon --native
+uv run python scripts\start_vllm_trained.py --daemon --native
+```
+
+Typical community builds:
+
+- https://github.com/SystemPanic/vllm-windows/releases
+- https://github.com/devnen/vllm-windows/releases
+- https://github.com/aivrar/vllm-windows-build/releases
+
+Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures such as
+`Spark2_5ForCausalLM` may still fail even after a successful Windows install.
+
+Python / CUDA / GPU 架构必须和 wheel 一致。像 `Spark2_5ForCausalLM` 这种自定义结构，
+即便 Windows 包能装上，vLLM 也不一定能加载。
 
 ---
 
@@ -330,7 +362,7 @@ bash scripts/wrappers/start_vllm_trained.sh --daemon
 | --- | --- |
 | `--mode auto\|lora\|merged` | override `TRAINED_MODEL_MODE` |
 | `--daemon` / `--foreground` | same as base server |
-| `--wsl` / `--docker` / `--force-native` | Windows backends |
+| `--wsl` / `--docker` / `--native` / `--force-native` | Windows backends |
 
 `auto` detection:
 
@@ -455,6 +487,7 @@ Wrappers `cd` to the repo root, set `PYTHONUTF8=1`, and exec `uv run python ...`
 | missing `.env` | copied from `.env_example`; fill tokens and paths |
 | port in use | `uv run python scripts/stop_vllm.py` or change `VLLM_PORT` |
 | Windows vLLM | `--wsl`, `--docker`, or run the same uv commands inside WSL2 |
+| Windows native vLLM | optional community wheel + `--native` / `VLLM_WINDOWS_BACKEND=native\|auto` |
 | CUDA OOM | lower `GPU_MEMORY_UTILIZATION` / `MAX_MODEL_LEN` / batch; enable 4-bit on Linux |
 | download failed | set `HF_ENDPOINT` / `MODELSCOPE_ENDPOINT`, or add tokens for gated repos |
 | validation failed | need `config.json`, tokenizer, non-empty weights; sharded models need index + shards |
@@ -497,4 +530,4 @@ Expected:
 - both snapshots can be loaded by `start_vllm.py` / `start_vllm_trained.py`
 - default txt converts to messages JSONL
 - tokens never appear in logs
-- Windows vLLM goes through WSL2 or Docker
+- Windows vLLM defaults to WSL2 or Docker; `--native` is an unofficial opt-in

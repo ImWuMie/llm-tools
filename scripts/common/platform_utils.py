@@ -5,6 +5,8 @@ import shutil
 import sys
 from pathlib import Path
 
+WINDOWS_VLLM_BACKENDS = ("auto", "wsl", "docker", "native", "fail")
+
 
 def is_windows() -> bool:
     return os.name == "nt" or sys.platform.startswith("win")
@@ -55,13 +57,80 @@ def vllm_native_supported() -> bool:
     return is_linux()
 
 
+def probe_vllm_import() -> tuple[bool, str]:
+    """Return whether `vllm` imports in this interpreter, plus a short detail string."""
+    try:
+        import vllm
+
+        version = getattr(vllm, "__version__", "unknown")
+        return True, f"vllm {version}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def resolve_windows_vllm_backend(
+    requested: str | None,
+    *,
+    force_native: bool = False,
+    vllm_importable: bool | None = None,
+    wsl_available: bool | None = None,
+    docker_available: bool | None = None,
+) -> str:
+    """Resolve the Windows serving backend.
+
+    `auto` prefers an already-installed community Windows wheel, then WSL2, then Docker.
+    """
+    if force_native:
+        return "native"
+    backend = (requested or "wsl").strip().lower() or "wsl"
+    if backend not in WINDOWS_VLLM_BACKENDS:
+        raise ValueError(
+            f"Unknown VLLM_WINDOWS_BACKEND={backend}. "
+            "Use auto / wsl / docker / native / fail."
+        )
+    if backend != "auto":
+        return backend
+    if vllm_importable is None:
+        vllm_importable = probe_vllm_import()[0]
+    if vllm_importable:
+        return "native"
+    if wsl_available is None:
+        wsl_available = has_wsl()
+    if wsl_available:
+        return "wsl"
+    if docker_available is None:
+        docker_available = has_docker()
+    if docker_available:
+        return "docker"
+    return "fail"
+
+
+def native_windows_vllm_guide() -> str:
+    return "\n".join(
+        [
+            "Official vLLM does not publish Windows wheels.",
+            "Optional unofficial native path (community vllm-windows):",
+            "  1) Use a separate Python 3.12 env that matches the wheel's CUDA (do not mix with Linux infer extra).",
+            "  2) Install a community wheel from one of:",
+            "       https://github.com/SystemPanic/vllm-windows/releases",
+            "       https://github.com/devnen/vllm-windows/releases",
+            "       https://github.com/aivrar/vllm-windows-build/releases",
+            "  3) Confirm:  uv run python scripts/install_vllm_windows.py --check",
+            "  4) Start:    uv run python scripts/start_vllm.py --daemon --native",
+            "     or set    VLLM_WINDOWS_BACKEND=native   (or auto)",
+            "This path is unsupported. WSL2 / Docker remain the recommended backends.",
+        ]
+    )
+
+
 def windows_vllm_hint() -> str:
     lines = [
         "vLLM does not officially support native Windows.",
         "Use one of these options:",
         "  1) WSL2:  wsl -e bash -lc 'cd /mnt/<drive>/path/to/llm-tools && uv run python scripts/start_vllm.py --daemon'",
         "  2) Docker: docker compose up vllm",
-        "  3) Re-run with --wsl if WSL2 is installed, or set VLLM_WINDOWS_BACKEND=wsl|docker",
+        "  3) Optional native: install a community vllm-windows wheel, then --native or VLLM_WINDOWS_BACKEND=native|auto",
+        "  4) Inspect the current env: uv run python scripts/install_vllm_windows.py --check",
     ]
     if has_wsl():
         lines.append("WSL executable was detected on this machine.")

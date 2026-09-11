@@ -20,6 +20,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
         "merge_lora.py",
         "eval.py",
         "selfcheck.py",
+        "install_vllm_windows.py",
     ],
 )
 def test_cli_help(script: str, capsys: pytest.CaptureFixture[str]) -> None:

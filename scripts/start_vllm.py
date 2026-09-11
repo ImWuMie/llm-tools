@@ -11,7 +11,7 @@ ensure_sys_path()
 
 from common.env import ConfigError, apply_runtime_env, load_app_config
 from common.logging_utils import setup_logging
-from common.vllm_launcher import VLLMLaunchError, start_vllm_server
+from common.vllm_launcher import VLLMLaunchError, cli_windows_backend, start_vllm_server
 
 LOGGER = setup_logging("llm_tools.start_vllm")
 
@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", default=None)
     parser.add_argument("--wsl", action="store_true", help="On Windows, delegate to WSL2.")
     parser.add_argument("--docker", action="store_true", help="On Windows, start docker compose service vllm.")
+    parser.add_argument(
+        "--native",
+        action="store_true",
+        help="On Windows, use an already-installed community vLLM wheel in this Python env.",
+    )
     parser.add_argument("--force-native", action="store_true", help="Skip Windows WSL/Docker redirection.")
     parser.add_argument("extra", nargs=argparse.REMAINDER, help="Extra args forwarded to vLLM after `--`.")
     return parser.parse_args()
@@ -45,11 +50,12 @@ def main() -> int:
                 "or point MODEL_DIR at a local snapshot."
             )
         extra = [item for item in args.extra if item != "--"]
-        backend = None
-        if args.docker:
-            backend = "docker"
-        elif args.wsl:
-            backend = "wsl"
+        backend, force_native = cli_windows_backend(
+            wsl=args.wsl,
+            docker=args.docker,
+            native=args.native,
+            force_native=args.force_native,
+        )
         daemon = bool(args.daemon and not args.foreground)
         return start_vllm_server(
             config=config,
@@ -58,7 +64,7 @@ def main() -> int:
             daemon=daemon,
             extra_args=extra,
             windows_backend=backend,
-            force_native=args.force_native,
+            force_native=force_native,
         )
     except (ConfigError, VLLMLaunchError) as exc:
         LOGGER.error("%s", exc)
