@@ -30,4 +30,14 @@ def test_wait_for_or_exit_follows_log(tmp_path: Path) -> None:
     proc = SimpleNamespace(returncode=1)
     proc.poll = lambda: 1  # type: ignore[attr-defined]
     path.write_text("engine died\n", encoding="utf-8")
-    assert wait_for_or_exit(proc, lambda: False, timeout=0.4, interval=0.05, log_path=path) == "exited"
+    assert (
+        wait_for_or_exit(
+            proc,
+            lambda: False,
+            timeout=0.4,
+            interval=0.05,
+            log_path=path,
+            follow_log=True,
+        )
+        == "exited"
+    )

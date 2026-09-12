@@ -10,9 +10,11 @@ from pathlib import Path
 
 import psutil
 
+from .bootstrap import SCRIPTS_DIR
 from .log_follow import LogFollower
 from .logging_utils import setup_logging
 from .paths import ensure_dir
+from .tee import REDACT_ENV
 
 LOGGER = setup_logging("llm_tools.process")
 
@@ -83,6 +85,9 @@ def start_process(
     log_path: Path,
     env: dict[str, str] | None = None,
     daemon: bool = False,
+    *,
+    tee_console: bool = True,
+    secret: str | None = None,
 ) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     reset_log_file(log_path)
@@ -91,24 +96,31 @@ def start_process(
     merged_env.setdefault("PYTHONIOENCODING", "utf-8")
     merged_env.setdefault("PYTHONUNBUFFERED", "1")
     sanitize_omp_env(merged_env)
+    if secret:
+        merged_env[REDACT_ENV] = secret
+    else:
+        merged_env.pop(REDACT_ENV, None)
 
-    stdout = None if not daemon else open(log_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-    stderr = None if not daemon else subprocess.STDOUT
+    tee_cmd = [
+        sys.executable,
+        str(SCRIPTS_DIR / "run_tee.py"),
+        "--log",
+        str(log_path),
+    ]
+    if not tee_console:
+        tee_cmd.append("--no-console")
+    tee_cmd.extend(["--", *cmd])
     kwargs: dict = {
         "cwd": str(cwd),
         "env": merged_env,
     }
     if daemon:
-        kwargs["stdout"] = stdout
-        kwargs["stderr"] = stderr
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(
-                subprocess, "DETACHED_PROCESS", 0
-            )
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
-    LOGGER.info("Launching process cwd=%s", cwd)
-    return subprocess.Popen(cmd, **kwargs)
+    LOGGER.info("Launching process cwd=%s (stdout/stderr teed to %s and console)", cwd, log_path)
+    return subprocess.Popen(tee_cmd, **kwargs)
 
 
 def stop_pid(pid: int, timeout: float = 20.0) -> None:
@@ -152,7 +164,7 @@ def wait_for_or_exit(
     description: str = "condition",
     log_path: Path | None = None,
     secret: str | None = None,
-    follow_log: bool = True,
+    follow_log: bool = False,
     log_start: int | None = None,
 ) -> str:
     """Wait until predicate() is true, the process exits, or timeout.

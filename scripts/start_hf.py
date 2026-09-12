@@ -112,7 +112,14 @@ def main() -> int:
         LOGGER.info("HF command: %s", " ".join(redact_command(cmd)))
         daemon = bool(args.daemon and not args.foreground)
         log_path = log_file(log_dir, service_name)
-        proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=True, env=serving_child_env())
+        proc = start_process(
+            cmd,
+            cwd=PROJECT_ROOT,
+            log_path=log_path,
+            daemon=True,
+            env=serving_child_env(),
+            secret=api_key,
+        )
         write_pid(pid_file(pid_dir, service_name), proc.pid)
         timeout = float(config.get("VLLM_HEALTH_TIMEOUT") or 180)
         result = wait_for_or_exit(
@@ -122,7 +129,6 @@ def main() -> int:
             description="hf /v1/models",
             log_path=log_path,
             secret=api_key,
-            log_start=0,
         )
         if result != "ok":
             raise ConfigError(f"transformers server started but never became healthy. Inspect {log_path}.")

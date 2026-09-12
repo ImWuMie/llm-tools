@@ -400,14 +400,21 @@ def start_vllm_server(
             "Native Windows runtime: ninja PATH, tvm_ffi DLL dir, "
             "xgrammar import shim, VLLM_USE_FLASHINFER_SAMPLER default=0"
         )
-    proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=daemon, env=child_env)
+    api_key = config.get("VLLM_API_KEY")
+    proc = start_process(
+        cmd,
+        cwd=PROJECT_ROOT,
+        log_path=log_path,
+        daemon=daemon,
+        env=child_env,
+        secret=api_key,
+    )
     write_pid(pid_file(pid_dir, service_name), proc.pid)
     LOGGER.info("Started %s pid=%s log=%s", service_name, proc.pid, log_path)
 
     timeout = default_native_health_timeout(config.get_float("VLLM_HEALTH_TIMEOUT")) if use_native_windows else float(
         config.get("VLLM_HEALTH_TIMEOUT") or 180
     )
-    api_key = config.get("VLLM_API_KEY")
     result = wait_for_or_exit(
         proc,
         lambda: _health_ok(host, port, api_key),
@@ -415,7 +422,6 @@ def start_vllm_server(
         description=f"{service_name} /v1/models",
         log_path=log_path,
         secret=api_key,
-        log_start=0,
     )
     if result != "ok":
         tail = log_tail(log_path, secret=api_key)
