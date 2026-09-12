@@ -20,6 +20,7 @@ TOOLCHAIN_ONLY_ENV = {
 
 PYTORCH_CU130_INDEX = "https://download.pytorch.org/whl/cu130"
 WINDOWS_SHIMS_DIR = SCRIPTS_DIR / "windows_shims"
+SHIMS_DIR = SCRIPTS_DIR / "shims"
 TVM_FFI_LIB_ENV = "LLM_TOOLS_TVM_FFI_LIB"
 
 
@@ -124,10 +125,26 @@ def native_windows_child_env(base: Mapping[str, str] | None = None) -> dict[str,
         env[TVM_FFI_LIB_ENV] = str(lib)
     env.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     pythonpath = [
+        str(SHIMS_DIR),
         str(WINDOWS_SHIMS_DIR),
         str(SCRIPTS_DIR),
         str(PROJECT_ROOT),
     ]
+    existing = env.get("PYTHONPATH", "")
+    if existing:
+        pythonpath.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+    for key in TOOLCHAIN_ONLY_ENV:
+        env.pop(key, None)
+    return env
+
+
+def serving_child_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Environment for vLLM/HF child processes on any platform."""
+    if os.name == "nt":
+        return native_windows_child_env(base)
+    env = dict(base or os.environ)
+    pythonpath = [str(SHIMS_DIR), str(SCRIPTS_DIR), str(PROJECT_ROOT)]
     existing = env.get("PYTHONPATH", "")
     if existing:
         pythonpath.append(existing)

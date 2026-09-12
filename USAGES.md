@@ -197,7 +197,7 @@ Startup checks:
 1. Validate local model files.
 2. Fail if the port is busy.
 3. Write `run/vllm.pid` and `logs/vllm.log` in daemon mode.
-4. Poll `GET /v1/models` until healthy or `VLLM_HEALTH_TIMEOUT`. If the process exits first, the launcher fails fast and prints the log tail.
+4. Poll `GET /v1/models` until healthy or `VLLM_HEALTH_TIMEOUT`. Daemon mode streams `logs/vllm.log` to the console while waiting. If the process exits first, the launcher fails fast and prints the log tail.
 
 Stop:
 

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import psutil
 
+from .log_follow import LogFollower
 from .logging_utils import setup_logging
 from .paths import ensure_dir
 
@@ -62,12 +63,15 @@ def start_process(
     daemon: bool = False,
 ) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    # `env` is a complete mapping when provided so callers can drop toolchain-only keys.
     merged_env = dict(env) if env is not None else os.environ.copy()
     merged_env.setdefault("PYTHONUTF8", "1")
     merged_env.setdefault("PYTHONIOENCODING", "utf-8")
+    merged_env.setdefault("PYTHONUNBUFFERED", "1")
+    omp = merged_env.get("OMP_NUM_THREADS")
+    if omp is not None and str(omp).strip() in {"", "0", "none", "null"}:
+        merged_env.pop("OMP_NUM_THREADS", None)
 
-    stdout = None if not daemon else open(log_path, "a", encoding="utf-8")  # noqa: SIM115
+    stdout = None if not daemon else open(log_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
     stderr = None if not daemon else subprocess.STDOUT
     kwargs: dict = {
         "cwd": str(cwd),
@@ -125,22 +129,41 @@ def wait_for_or_exit(
     timeout: float,
     interval: float = 1.0,
     description: str = "condition",
+    log_path: Path | None = None,
+    secret: str | None = None,
+    follow_log: bool = True,
+    log_start: int | None = None,
 ) -> str:
     """Wait until predicate() is true, the process exits, or timeout.
 
     Returns ``ok``, ``exited``, or ``timeout``.
     """
+    follower = LogFollower(log_path, secret=secret, start_pos=log_start) if follow_log and log_path is not None else None
+    if follower is not None:
+        LOGGER.info("Streaming %s to console while waiting for health.", log_path)
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        if predicate():
-            return "ok"
-        code = proc.poll()
-        if code is not None:
-            LOGGER.error("%s process exited with code %s before becoming ready.", description, code)
-            return "exited"
-        time.sleep(interval)
-    LOGGER.error("Timed out waiting for %s after %.1fs.", description, timeout)
-    return "timeout"
+    next_check = time.time()
+    try:
+        while time.time() < deadline:
+            if follower is not None:
+                follower.poll()
+            now = time.time()
+            if now >= next_check:
+                if predicate():
+                    return "ok"
+                next_check = now + interval
+            code = proc.poll()
+            if code is not None:
+                if follower is not None:
+                    follower.poll()
+                LOGGER.error("%s process exited with code %s before becoming ready.", description, code)
+                return "exited"
+            time.sleep(0.2)
+        LOGGER.error("Timed out waiting for %s after %.1fs.", description, timeout)
+        return "timeout"
+    finally:
+        if follower is not None:
+            follower.close()
 
 
 def current_python() -> str:

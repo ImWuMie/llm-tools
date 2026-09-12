@@ -13,7 +13,7 @@ from common.env import ConfigError, apply_runtime_env, load_app_config
 from common.hf_server import configure_runtime, load_causal_lm, serve_forever
 from common.logging_utils import setup_logging
 from common.preflight import run_preflight
-from common.process import current_python, is_pid_running, log_file, pid_file, port_in_use, read_pid, start_process, wait_for, write_pid
+from common.process import current_python, is_pid_running, log_file, pid_file, port_in_use, read_pid, start_process, wait_for_or_exit, write_pid
 from common.secrets import redact_command
 from common.health import check_openai_models
 from common.validate_model import looks_like_lora
@@ -101,10 +101,20 @@ def main() -> int:
         LOGGER.info("HF command: %s", " ".join(redact_command(cmd)))
         daemon = bool(args.daemon and not args.foreground)
         log_path = log_file(log_dir, service_name)
+        log_start = log_path.stat().st_size if log_path.is_file() else 0
         proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=True)
         write_pid(pid_file(pid_dir, service_name), proc.pid)
         timeout = float(config.get("VLLM_HEALTH_TIMEOUT") or 180)
-        if not wait_for(lambda: _health_ok(host, port, api_key), timeout=timeout, description="hf /v1/models"):
+        result = wait_for_or_exit(
+            proc,
+            lambda: _health_ok(host, port, api_key),
+            timeout=timeout,
+            description="hf /v1/models",
+            log_path=log_path,
+            secret=api_key,
+            log_start=log_start,
+        )
+        if result != "ok":
             raise ConfigError(f"transformers server started but never became healthy. Inspect {log_path}.")
         LOGGER.info("Started %s pid=%s log=%s", service_name, proc.pid, log_path)
         if not daemon:

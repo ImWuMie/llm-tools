@@ -33,7 +33,7 @@ from .process import (
 )
 from .secrets import redact_command
 from .validate_model import looks_like_lora, looks_like_merged_model, validate_local_model
-from .windows_vllm_runtime import default_native_health_timeout, log_tail, native_windows_child_env
+from .windows_vllm_runtime import default_native_health_timeout, log_tail, serving_child_env
 
 LOGGER = setup_logging("llm_tools.vllm")
 
@@ -394,12 +394,13 @@ def start_vllm_server(
     )
     LOGGER.info("vLLM command: %s", " ".join(redact_command(cmd)))
     log_path = log_file(log_dir, service_name)
-    child_env = native_windows_child_env() if use_native_windows else None
+    child_env = serving_child_env()
     if use_native_windows:
         LOGGER.info(
             "Native Windows runtime: ninja PATH, tvm_ffi DLL dir, "
             "xgrammar import shim, VLLM_USE_FLASHINFER_SAMPLER default=0"
         )
+    log_start = log_path.stat().st_size if log_path.is_file() else 0
     proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=daemon, env=child_env)
     write_pid(pid_file(pid_dir, service_name), proc.pid)
     LOGGER.info("Started %s pid=%s log=%s", service_name, proc.pid, log_path)
@@ -413,6 +414,9 @@ def start_vllm_server(
         lambda: _health_ok(host, port, api_key),
         timeout=timeout,
         description=f"{service_name} /v1/models",
+        log_path=log_path,
+        secret=api_key,
+        log_start=log_start,
     )
     if result != "ok":
         tail = log_tail(log_path, secret=api_key)
