@@ -40,6 +40,7 @@ train = [
 # community-wheel path; see scripts/install_vllm_windows.py and VLLM_WINDOWS_BACKEND.
 infer = [
     "vllm>=0.6.3; sys_platform == 'linux'",
+    "accelerate>=1.0.0",
 ]
 infer-hf = [
     "torch>=2.4.0",

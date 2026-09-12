@@ -31,6 +31,37 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: dict[str, Any]) -
     handler.wfile.write(body)
 
 
+def accelerate_available() -> bool:
+    try:
+        import accelerate  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def from_pretrained_kwargs(*, cuda: bool, dtype: Any, has_accelerate: bool | None = None) -> dict[str, Any]:
+    """Build AutoModelForCausalLM.from_pretrained kwargs.
+
+    ``device_map='auto'`` requires accelerate. Single-GPU serving works without it.
+    """
+    kwargs: dict[str, Any] = {"trust_remote_code": True, "dtype": dtype}
+    if cuda and (accelerate_available() if has_accelerate is None else has_accelerate):
+        kwargs["device_map"] = "auto"
+    return kwargs
+
+
+def _model_device(model) -> Any:
+    device = getattr(model, "device", None)
+    if device is not None and str(device) != "meta":
+        return device
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        import torch
+
+        return torch.device("cpu")
+
+
 def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -38,12 +69,23 @@ def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     ensure_compatible_model_config(model_dir)
     LOGGER.info("Loading transformers model from %s", model_dir)
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        str(model_dir),
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto" if torch.cuda.is_available() else None,
-    )
+    cuda = bool(torch.cuda.is_available())
+    dtype = torch.bfloat16 if cuda else torch.float32
+    has_acc = accelerate_available()
+    kwargs = from_pretrained_kwargs(cuda=cuda, dtype=dtype, has_accelerate=has_acc)
+    if cuda and "device_map" not in kwargs:
+        LOGGER.warning(
+            "accelerate is not installed; loading onto a single CUDA device without device_map. "
+            "For multi-GPU device_map=auto run `uv sync --extra infer-hf`."
+        )
+    try:
+        model = AutoModelForCausalLM.from_pretrained(str(model_dir), **kwargs)
+    except TypeError:
+        kwargs.pop("dtype", None)
+        kwargs["torch_dtype"] = dtype
+        model = AutoModelForCausalLM.from_pretrained(str(model_dir), **kwargs)
+    if cuda and "device_map" not in kwargs:
+        model = model.to(device="cuda", dtype=dtype)
     if adapter_path is not None:
         from peft import PeftModel
 
@@ -64,8 +106,8 @@ def generate_chat(messages: list[dict[str, str]], *, max_tokens: int, temperatur
         parts = [f"{item.get('role', 'user')}: {item.get('content', '')}" for item in messages]
         prompt = "\n".join(parts) + "\nassistant:"
     inputs = tokenizer(prompt, return_tensors="pt")
-    if hasattr(model, "device"):
-        inputs = {key: value.to(model.device) for key, value in inputs.items()}
+    device = _model_device(model)
+    inputs = {key: value.to(device) for key, value in inputs.items()}
     import torch
 
     do_sample = temperature is not None and temperature > 0

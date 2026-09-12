@@ -1631,6 +1631,7 @@ eval = [
     { name = "sacrebleu" },
 ]
 infer = [
+    { name = "accelerate" },
     { name = "vllm", marker = "sys_platform == 'linux'" },
 ]
 infer-hf = [
@@ -1662,6 +1663,7 @@ webui = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerate", marker = "extra == 'infer'", specifier = ">=1.0.0" },
     { name = "accelerate", marker = "extra == 'infer-hf'", specifier = ">=1.0.0" },
     { name = "accelerate", marker = "extra == 'train'", specifier = ">=1.0.0" },
     { name = "bitsandbytes", marker = "sys_platform == 'linux' and extra == 'train'", specifier = ">=0.44.0" },
