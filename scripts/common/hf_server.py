@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from .logging_utils import setup_logging
-from .model_config import ensure_compatible_model_config
-from .transformers_compat import apply_transformers5_compat
 
 LOGGER = setup_logging("llm_tools.hf_server")
 
@@ -68,8 +66,6 @@ def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    ensure_compatible_model_config(model_dir)
-    apply_transformers5_compat(model_dir)
     LOGGER.info("Loading transformers model from %s", model_dir)
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
     cuda = bool(torch.cuda.is_available())
@@ -97,30 +93,7 @@ def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     model.eval()
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    sanitize_generation_config(model)
     return tokenizer, model
-
-
-def sanitize_generation_config(model) -> None:
-    """Spark ships vLLM-style generation_config (top_k=-1, max_tokens) that breaks HF generate."""
-    gc = getattr(model, "generation_config", None)
-    if gc is None:
-        return
-    top_k = getattr(gc, "top_k", None)
-    if top_k is not None:
-        try:
-            if int(top_k) < 0:
-                gc.top_k = None
-                LOGGER.info("Cleared generation_config.top_k=%s (not valid for transformers generate)", top_k)
-        except (TypeError, ValueError):
-            gc.top_k = None
-    extra = getattr(gc, "max_tokens", None)
-    if extra is not None and getattr(gc, "max_new_tokens", None) in {None, 0}:
-        try:
-            # Do not keep a million-token default; requests set max_new_tokens.
-            delattr(gc, "max_tokens")
-        except Exception:
-            pass
 
 
 def resolve_max_tokens(payload: dict[str, Any], default: int = 256) -> int:

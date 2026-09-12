@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from .logging_utils import setup_logging
-from .model_config import ensure_compatible_model_config
-from .transformers_compat import apply_transformers5_compat
 from .validate_model import validate_local_model
 from .vllm_plugins import is_spark_architecture, plugin_covers_architecture, spark_plugin_installed
 
@@ -218,8 +216,6 @@ def run_preflight(
     report = PreflightReport(model_dir=str(model_dir))
     problems = validate_local_model(model_dir)
     report.problems.extend(problems)
-    ensure_compatible_model_config(model_dir)
-    apply_transformers5_compat(model_dir)
     config = read_model_config(model_dir)
     metadata = read_index_metadata(model_dir)
     report.model_type = str(config.get("model_type") or "") or None

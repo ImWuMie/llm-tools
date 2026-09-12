@@ -9,7 +9,6 @@ from common.hf_server import (
     resolve_enable_thinking,
     resolve_max_tokens,
     resolve_temperature,
-    sanitize_generation_config,
 )
 
 
@@ -28,12 +27,6 @@ def test_from_pretrained_kwargs_uses_device_map_with_accelerate() -> None:
 def test_from_pretrained_kwargs_cpu_has_no_device_map() -> None:
     kwargs = from_pretrained_kwargs(cuda=False, dtype="fp32", has_accelerate=True)
     assert "device_map" not in kwargs
-
-
-def test_sanitize_generation_config_clears_negative_top_k() -> None:
-    model = SimpleNamespace(generation_config=SimpleNamespace(top_k=-1, max_tokens=1048576, max_new_tokens=None))
-    sanitize_generation_config(model)
-    assert model.generation_config.top_k is None
 
 
 def test_resolve_max_tokens_prefers_completion_field() -> None:

@@ -12,7 +12,6 @@ ensure_sys_path()
 
 from common.env import ConfigError, apply_runtime_env, load_app_config, upsert_env_key
 from common.logging_utils import setup_logging
-from common.model_config import ensure_compatible_model_config
 from common.secrets import mask_secret
 from common.validate_model import is_valid_local_model, validate_local_model
 from common.license_check import inspect_license
@@ -206,7 +205,6 @@ def main() -> int:
             )
 
         if maybe_skip(output_dir, args.force):
-            ensure_compatible_model_config(output_dir)
             if not args.skip_license_check:
                 report = inspect_license(output_dir)
                 for warning in report.warnings:
@@ -232,7 +230,6 @@ def main() -> int:
                 if problems:
                     raise SourceError(f"Download from {name} completed but validation failed: {'; '.join(problems)}")
                 LOGGER.info("Download succeeded via %s. Local path: %s", name, downloaded)
-                ensure_compatible_model_config(downloaded)
                 if not args.skip_license_check:
                     license_report = inspect_license(downloaded)
                     for warning in license_report.warnings:
