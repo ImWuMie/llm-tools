@@ -273,7 +273,7 @@ uv run python scripts/stop_vllm.py
 out-of-tree plugin is visible in this env; otherwise `hf`.
 
 Starting a server rewrites Spark nested `rope_parameters` in `config.json` so
-transformers 5.x does not inject a float `rope_theta` sibling (the `'float' object has no attribute 'get'` crash). Per-layer `full_attention` / `sliding_attention` maps are kept; a dict sentinel is stored at `rope_parameters.rope_theta`. `logs/vllm.log` is truncated on every start.
+transformers 5.x does not inject a float `rope_theta` sibling (the `'float' object has no attribute 'get'` crash). Per-layer `full_attention` / `sliding_attention` maps are kept; a dict sentinel is stored at `rope_parameters.rope_theta`. Custom models that still use transformers 4.x list `_tied_weights_keys` are converted to a dict mapping. `logs/vllm.log` is truncated on every start.
 
 Quantized export (converters must already be installed):
 

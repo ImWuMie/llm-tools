@@ -9,6 +9,7 @@ from typing import Any
 
 from .logging_utils import setup_logging
 from .model_config import ensure_compatible_model_config
+from .transformers_compat import apply_transformers5_compat
 
 LOGGER = setup_logging("llm_tools.hf_server")
 
@@ -67,6 +68,7 @@ def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     ensure_compatible_model_config(model_dir)
+    apply_transformers5_compat(model_dir)
     LOGGER.info("Loading transformers model from %s", model_dir)
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
     cuda = bool(torch.cuda.is_available())
