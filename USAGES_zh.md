@@ -258,7 +258,7 @@ uv run python scripts/start_hf.py --daemon
 uv run python scripts/stop_vllm.py --service hf
 ```
 
-`INFER_ENGINE=auto`：架构看起来被 vLLM 支持时走 vLLM，否则走 `hf`。
+`INFER_ENGINE=auto` 在本环境能识别模型类型或 Spark plugin 时走 vLLM，否则走 `hf`。plugin 必须装进 `uv run` 的 `.venv`，装在 AutoDL 系统 Python 里不生效。
 
 量化导出（需自行安装转换器）：
 

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .logging_utils import setup_logging
 from .validate_model import validate_local_model
+from .vllm_plugins import is_spark_architecture, plugin_covers_architecture, spark_plugin_installed
 
 LOGGER = setup_logging("llm_tools.preflight")
 
@@ -158,13 +161,41 @@ def gpu_memory_gb() -> float | None:
             props = torch.cuda.get_device_properties(0)
             return float(props.total_memory) / 1024**3
     except Exception:
-        return None
+        pass
     return None
 
 
-def vllm_likely_supported(config: dict[str, Any]) -> bool:
+def nvidia_smi_memory_gb() -> float | None:
+    if shutil.which("nvidia-smi") is None:
+        return None
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            text=True,
+            timeout=5,
+            stderr=subprocess.DEVNULL,
+        )
+        first = output.strip().splitlines()[0].strip()
+        value = float(first.split()[0])
+        return value / 1024.0 if value > 64 else value
+    except Exception:
+        return None
+
+
+def torch_cuda_available() -> bool:
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
+
+def vllm_likely_supported(config: dict[str, Any], *, plugin_available: bool | None = None) -> bool:
     model_type = str(config.get("model_type") or "").strip().lower()
     if model_type in KNOWN_VLLM_TYPES:
+        return True
+    if plugin_covers_architecture(config, plugin_available=plugin_available):
         return True
     auto_map = config.get("auto_map")
     if isinstance(auto_map, dict) and auto_map:
@@ -192,14 +223,28 @@ def run_preflight(
     if architectures:
         report.architecture = str(architectures[0])
     report.custom_code = bool(config.get("auto_map"))
-    if vllm_likely_supported(config):
+    spark_like = is_spark_architecture(config)
+    plugin_ok = spark_plugin_installed() if spark_like else False
+    if vllm_likely_supported(config, plugin_available=plugin_ok):
         report.engine_hint = "vllm"
+        if plugin_ok:
+            report.warnings.append(
+                "Spark vLLM plugin detected in this interpreter; auto will use vLLM. "
+                "If tool calls fail, pass `-- --enable-auto-tool-choice --tool-call-parser spark25`."
+            )
     else:
         report.engine_hint = "hf"
-        report.warnings.append(
-            f"Architecture {report.architecture or report.model_type or 'unknown'} is unlikely to work in vLLM. "
-            "Use INFER_ENGINE=hf or --engine hf."
-        )
+        if spark_like:
+            report.warnings.append(
+                f"Architecture {report.architecture or report.model_type} needs the Spark vLLM plugin "
+                "in THIS interpreter (`uv run` .venv). Installing it in AutoDL system/conda Python is ignored. "
+                "Install into the project env, then rerun, or pass `--engine vllm`. Fallback: `--engine hf`."
+            )
+        else:
+            report.warnings.append(
+                f"Architecture {report.architecture or report.model_type or 'unknown'} is unlikely to work in vLLM. "
+                "Use INFER_ENGINE=hf or --engine hf."
+            )
     weight_gb, kv_gb, total_gb = estimate_memory_gb(
         config, metadata, max_model_len=max_model_len, dtype=dtype
     )
@@ -217,7 +262,15 @@ def run_preflight(
                 "Lower MAX_MODEL_LEN / GPU_MEMORY_UTILIZATION or use quantization."
             )
     if report.gpu_memory_gb is None:
-        report.warnings.append("No CUDA device visible; serving may fall back to CPU and be very slow.")
+        smi = nvidia_smi_memory_gb()
+        if smi and not torch_cuda_available():
+            report.warnings.append(
+                f"nvidia-smi sees a GPU (~{smi:.1f} GiB) but this Python env has no CUDA torch. "
+                "vLLM/HF will load on CPU. On AutoDL run `uv sync --extra infer` in this repo, "
+                "and install Spark-plugin with `uv pip install` into `.venv`, not system Python."
+            )
+        else:
+            report.warnings.append("No CUDA device visible; serving may fall back to CPU and be very slow.")
     report.ok = not report.problems
     LOGGER.info("Preflight: %s", json.dumps(report.as_dict(), ensure_ascii=False))
     return report

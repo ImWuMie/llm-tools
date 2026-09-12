@@ -156,6 +156,11 @@ def build_vllm_command(
     cmd += _optional_flag("--quantization", config.get("QUANTIZATION"))
     if config.get_bool("VLLM_TRUST_REMOTE_CODE", True):
         cmd.append("--trust-remote-code")
+    parser = (config.get("VLLM_TOOL_CALL_PARSER") or "").strip()
+    if parser:
+        cmd += ["--tool-call-parser", parser]
+    if config.get_bool("VLLM_ENABLE_AUTO_TOOL_CHOICE", False):
+        cmd.append("--enable-auto-tool-choice")
     if lora_modules:
         cmd += ["--enable-lora", "--max-loras", str(max(1, len(lora_modules)))]
         for name, path in lora_modules.items():

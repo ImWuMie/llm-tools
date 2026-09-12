@@ -252,17 +252,25 @@ Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures
 
 ## 4.2 Transformers fallback / export / WebUI
 
-Custom architectures (for example `Spark2_5ForCausalLM`) should use the transformers server:
+Stock vLLM does **not** know `Spark2_5ForCausalLM`. `INFER_ENGINE=auto` therefore picks
+the transformers server **unless** the Spark vLLM plugin is installed in **this**
+`.venv` (`uv run` interpreter). Installing the plugin in AutoDL system/conda Python
+does not count.
 
 ```bash
+# HF fallback (works without the plugin; needs CUDA torch in this env)
 uv sync --extra infer-hf
 uv run python scripts/start_vllm.py --daemon --engine hf
-# or
-uv run python scripts/start_hf.py --daemon
-uv run python scripts/stop_vllm.py --service hf
+
+# vLLM + Spark plugin (same interpreter as uv run)
+uv sync --extra infer
+uv pip install git+https://github.com/XHToken/Spark-plugin
+uv run python scripts/start_vllm.py --daemon --engine vllm -- --enable-auto-tool-choice --tool-call-parser spark25
+uv run python scripts/stop_vllm.py
 ```
 
-`INFER_ENGINE=auto` picks vLLM when `model_type` looks supported, otherwise `hf`.
+`INFER_ENGINE=auto` picks vLLM when `model_type` looks supported **or** a matching
+out-of-tree plugin is visible in this env; otherwise `hf`.
 
 Quantized export (converters must already be installed):
 
