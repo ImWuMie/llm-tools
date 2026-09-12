@@ -9,20 +9,12 @@ from pathlib import Path
 
 def _run() -> None:
     try:
-        from common.rope_compat import apply_all_patches
-
-        apply_all_patches(log=True)
-    except Exception as exc:
-        sys.stderr.write(f"llm-tools: windows sitecustomize RoPE patch failed: {type(exc).__name__}: {exc}\n")
-    try:
         from common.windows_vllm_runtime import prepare_native_windows_interpreter
 
         prepare_native_windows_interpreter()
         return
-    except Exception as exc:
-        sys.stderr.write(
-            f"llm-tools: windows sitecustomize runtime failed: {type(exc).__name__}: {exc}\n"
-        )
+    except Exception:
+        pass
     os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     scripts = Path(sys.executable).resolve().parent
     os.environ["PATH"] = str(scripts) + os.pathsep + os.environ.get("PATH", "")

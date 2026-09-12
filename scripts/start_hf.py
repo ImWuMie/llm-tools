@@ -69,9 +69,6 @@ def main() -> int:
         api_key = config.get("VLLM_API_KEY")
 
         if args.worker:
-            from common.rope_compat import apply_all_patches
-
-            apply_all_patches()
             tokenizer, model = load_causal_lm(model_dir, adapter)
             configure_runtime(tokenizer=tokenizer, model=model, served_name=served, api_key=api_key)
             serve_forever(host, port)

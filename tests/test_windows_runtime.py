@@ -11,6 +11,7 @@ from common.windows_vllm_runtime import (
     install_xgrammar_stub,
     log_tail,
     native_windows_child_env,
+    serving_child_env,
 )
 
 
@@ -25,6 +26,16 @@ def test_native_child_env_strips_toolchain_keys_and_defaults_sampler(monkeypatch
     assert env["VLLM_USE_FLASHINFER_SAMPLER"] == "0"
     assert "sitecustomize" not in Path(env["PYTHONPATH"].split(os.pathsep)[0]).name
     assert (Path(env["PYTHONPATH"].split(os.pathsep)[0]) / "sitecustomize.py").is_file()
+
+
+def test_serving_child_env_strips_vllm_host(monkeypatch) -> None:
+    monkeypatch.setenv("VLLM_HOST", "0.0.0.0")
+    monkeypatch.setenv("VLLM_PORT", "8000")
+    monkeypatch.setenv("VLLM_SPARK_PLUGIN", "1")
+    env = serving_child_env()
+    for key in ("VLLM_HOST", "VLLM_PORT", "VLLM_SPARK_PLUGIN"):
+        assert key in TOOLCHAIN_ONLY_ENV
+        assert key not in env
 
 
 def test_xgrammar_stub_exposes_grammar_matcher() -> None:

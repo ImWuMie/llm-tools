@@ -31,9 +31,6 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: dict[str, Any]) -
 
 
 def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
-    from .rope_compat import apply_all_patches
-
-    apply_all_patches()
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 

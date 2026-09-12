@@ -128,7 +128,8 @@ def build_vllm_command(
     port = config.require("VLLM_PORT")
     cmd = [
         python_executable,
-        str(PROJECT_ROOT / "scripts" / "run_vllm_server.py"),
+        "-m",
+        "vllm.entrypoints.openai.api_server",
         "--model",
         str(model_path),
         "--host",
