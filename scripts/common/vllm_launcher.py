@@ -19,6 +19,7 @@ from .platform_utils import (
     resolve_windows_vllm_backend,
     windows_vllm_hint,
 )
+from .preflight import run_preflight
 from .process import (
     current_python,
     is_pid_running,
@@ -27,12 +28,12 @@ from .process import (
     port_in_use,
     read_pid,
     start_process,
-    wait_for,
+    wait_for_or_exit,
     write_pid,
 )
 from .secrets import redact_command
 from .validate_model import looks_like_lora, looks_like_merged_model, validate_local_model
-from .preflight import run_preflight
+from .windows_vllm_runtime import default_native_health_timeout, log_tail, native_windows_child_env
 
 LOGGER = setup_logging("llm_tools.vllm")
 
@@ -367,6 +368,9 @@ def start_vllm_server(
                 "torch.cuda is not visible in this environment. "
                 "A community Windows wheel still needs a matching NVIDIA driver + CUDA runtime."
             )
+        use_native_windows = True
+    else:
+        use_native_windows = False
 
     ensure_vllm_importable()
     python_executable = current_python()
@@ -385,23 +389,42 @@ def start_vllm_server(
     )
     LOGGER.info("vLLM command: %s", " ".join(redact_command(cmd)))
     log_path = log_file(log_dir, service_name)
-    proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=daemon)
+    child_env = native_windows_child_env() if use_native_windows else None
+    if use_native_windows:
+        LOGGER.info(
+            "Native Windows runtime: ninja PATH, tvm_ffi DLL dir, "
+            "xgrammar import shim, VLLM_USE_FLASHINFER_SAMPLER default=0"
+        )
+    proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=daemon, env=child_env)
     write_pid(pid_file(pid_dir, service_name), proc.pid)
     LOGGER.info("Started %s pid=%s log=%s", service_name, proc.pid, log_path)
 
-    timeout = float(config.get("VLLM_HEALTH_TIMEOUT") or 180)
+    timeout = default_native_health_timeout(config.get_float("VLLM_HEALTH_TIMEOUT")) if use_native_windows else float(
+        config.get("VLLM_HEALTH_TIMEOUT") or 180
+    )
     api_key = config.get("VLLM_API_KEY")
-    healthy = wait_for(
+    result = wait_for_or_exit(
+        proc,
         lambda: _health_ok(host, port, api_key),
         timeout=timeout,
         description=f"{service_name} /v1/models",
     )
-    if not healthy:
-        hint = (
-            "The process started but never became healthy. Typical causes: GPU OOM, "
-            "invalid MODEL_DIR, missing CUDA, or quantization mismatch. "
-            f"Inspect {log_path}."
-        )
+    if result != "ok":
+        tail = log_tail(log_path, secret=api_key)
+        if result == "exited":
+            hint = (
+                f"{service_name} exited with code {proc.returncode} before becoming healthy. "
+                "Typical causes: unsupported architecture, GPU OOM, missing ninja/MSVC for "
+                f"FlashInfer JIT, or xgrammar DLL errors. Inspect {log_path}."
+            )
+        else:
+            hint = (
+                "The process started but never became healthy. Typical causes: GPU OOM, "
+                "invalid MODEL_DIR, missing CUDA, first-start torch.compile, or quantization mismatch. "
+                f"Inspect {log_path}. Native Windows first start often needs VLLM_HEALTH_TIMEOUT>=600."
+            )
+        if tail:
+            hint += "\n--- log tail ---\n" + tail
         if not daemon:
             proc.terminate()
         raise VLLMLaunchError(hint)

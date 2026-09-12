@@ -58,3 +58,7 @@ Thumbs.db
 *.onnx
 *.gguf
 *.npz
+
+# Unofficial native Windows vLLM env
+.venv-vllm-win/
+

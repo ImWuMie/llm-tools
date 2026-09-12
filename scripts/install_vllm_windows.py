@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import shutil
 import subprocess
+import sys
 
 from common.bootstrap import ensure_sys_path
 
@@ -24,6 +24,7 @@ from common.platform_utils import (
     resolve_windows_vllm_backend,
     windows_vllm_hint,
 )
+from common.windows_vllm_runtime import PYTORCH_CU130_INDEX
 
 LOGGER = setup_logging("llm_tools.install_vllm_windows")
 
@@ -56,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         help="Direct .whl URL from a vllm-windows GitHub release.",
     )
     parser.add_argument("--yes", action="store_true", help="Required to actually pip-install --wheel-url.")
+    parser.add_argument(
+        "--extra-index-url",
+        default=PYTORCH_CU130_INDEX,
+        help="PyTorch extra index so the wheel can resolve CUDA torch (default: cu130).",
+    )
     return parser.parse_args()
 
 
@@ -66,12 +72,34 @@ COMMUNITY_RELEASES = (
 )
 
 
-def _install_wheel(url: str) -> int:
+def _install_wheel(url: str, extra_index_url: str | None) -> int:
     uv = shutil.which("uv")
-    cmd = [uv, "pip", "install", url] if uv else [sys.executable, "-m", "pip", "install", url]
+    extra: list[str] = []
+    if extra_index_url:
+        extra = ["--extra-index-url", extra_index_url]
+        if uv:
+            extra += ["--index-strategy", "unsafe-best-match"]
+    if uv:
+        cmd = [uv, "pip", "install", *extra, url]
+    else:
+        cmd = [sys.executable, "-m", "pip", "install", *extra, url]
     LOGGER.info("Installing community wheel: %s", url)
     completed = subprocess.run(cmd, check=False)
     return completed.returncode
+
+
+def _write_native_env(config) -> None:
+    upsert_env_key(config.env_path, "VLLM_WINDOWS_BACKEND", "native")
+    if not (config.get("VLLM_USE_FLASHINFER_SAMPLER") or "").strip():
+        upsert_env_key(config.env_path, "VLLM_USE_FLASHINFER_SAMPLER", "0")
+    timeout = (config.get("VLLM_HEALTH_TIMEOUT") or "").strip()
+    if timeout in {"", "180"}:
+        upsert_env_key(config.env_path, "VLLM_HEALTH_TIMEOUT", "600")
+    LOGGER.info(
+        "Updated %s: VLLM_WINDOWS_BACKEND=native "
+        "(FlashInfer sampler defaults off; health timeout bumped if it was 180s)",
+        config.env_path,
+    )
 
 
 def _python_info() -> dict[str, object]:
@@ -154,7 +182,7 @@ def main() -> int:
         if not args.yes:
             LOGGER.error("Refusing to install without --yes. Re-run with --install --wheel-url URL --yes.")
             return 1
-        code = _install_wheel(args.wheel_url)
+        code = _install_wheel(args.wheel_url, args.extra_index_url)
         if code != 0:
             return code
         ok, detail = probe_vllm_import()
@@ -163,8 +191,7 @@ def main() -> int:
             return 1
         if args.write_env:
             config = load_app_config()
-            upsert_env_key(config.env_path, "VLLM_WINDOWS_BACKEND", "native")
-            LOGGER.info("Updated %s: VLLM_WINDOWS_BACKEND=native", config.env_path)
+            _write_native_env(config)
         return 0
 
     if args.write_env:
@@ -172,8 +199,7 @@ def main() -> int:
             LOGGER.error("Refusing to write VLLM_WINDOWS_BACKEND=native because `import vllm` failed.")
             return 1
         config = load_app_config()
-        upsert_env_key(config.env_path, "VLLM_WINDOWS_BACKEND", "native")
-        LOGGER.info("Updated %s: VLLM_WINDOWS_BACKEND=native", config.env_path)
+        _write_native_env(config)
 
     if args.check and not info["vllm_importable"]:
         return 1

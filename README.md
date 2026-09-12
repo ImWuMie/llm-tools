@@ -11,7 +11,7 @@ Minimum platforms: **Windows 10+** and **Linux**. Core logic is Python; `.sh` / 
 
 > **Windows note:** native vLLM support is incomplete. On Windows, start vLLM through **WSL2** or **Docker**. LoRA training can run natively; QLoRA / bitsandbytes is automatically disabled on Windows.
 >
-> Optional unofficial path: install a community `vllm-windows` wheel, then `uv run python scripts/start_vllm.py --native` or set `VLLM_WINDOWS_BACKEND=native|auto`. Check with `uv run python scripts/install_vllm_windows.py --check`.
+> Optional unofficial path: install a community `vllm-windows` wheel with `scripts/install_vllm_windows.py --install --wheel-url URL --yes --write-env`, then `uv run python scripts/start_vllm.py --native`. Native start now injects ninja PATH, disables FlashInfer sampler JIT by default, and stubs broken `xgrammar` DLLs. Custom architectures such as Spark still need `--engine hf`.
 
 [中文文档](README_zh.md) · [Usage](USAGES.md) · [中文用法](USAGES_zh.md)
 

@@ -118,8 +118,9 @@ Point `MODEL_DIR` at that folder so serving does not care about the source.
 | `QUANTIZATION` | empty | vLLM quant method, if any |
 | `VLLM_TRUST_REMOTE_CODE` | `1` | needed by Qwen |
 | `VLLM_MAX_NUM_SEQS` | `16` | concurrent sequences |
-| `VLLM_HEALTH_TIMEOUT` | `180` | seconds to wait for `/v1/models` |
+| `VLLM_HEALTH_TIMEOUT` | `600` | seconds to wait for `/v1/models` (native Windows compile is slow) |
 | `VLLM_WINDOWS_BACKEND` | `wsl` | `wsl` / `docker` / `native` / `auto` / `fail` |
+| `VLLM_USE_FLASHINFER_SAMPLER` | `0` | native Windows default; set `1` only if ninja+MSVC can JIT FlashInfer |
 
 ---
 
@@ -139,7 +140,7 @@ uv run python scripts\download_model.py --source auto --update-env
 | Flag | Meaning |
 | --- | --- |
 | `--source auto\|hf\|modelscope` | override `MODEL_SOURCE` |
-| `--model-id` | fallback id for both sources |
+| `--model-id` | override `MODEL_ID` for both sources; wins over `.env` `HF_MODEL_ID` / `MODELSCOPE_MODEL_ID` |
 | `--hf-model-id` | Hugging Face repo |
 | `--modelscope-model-id` | ModelScope id |
 | `--revision` | fallback revision |
@@ -196,7 +197,7 @@ Startup checks:
 1. Validate local model files.
 2. Fail if the port is busy.
 3. Write `run/vllm.pid` and `logs/vllm.log` in daemon mode.
-4. Poll `GET /v1/models` until healthy or `VLLM_HEALTH_TIMEOUT`.
+4. Poll `GET /v1/models` until healthy or `VLLM_HEALTH_TIMEOUT`. If the process exits first, the launcher fails fast and prints the log tail.
 
 Stop:
 
@@ -217,13 +218,23 @@ On Windows, the script uses `VLLM_WINDOWS_BACKEND` unless `--wsl` / `--docker` /
 Official vLLM does **not** support native Windows. The optional path is a community wheel
 (`vllm-windows`), installed **outside** `uv sync --extra infer` (that extra is Linux-only).
 
+Prefer a dedicated Python 3.12 env (for example `.venv-vllm-win`) so the unofficial wheel
+does not mix with `uv sync --extra train`.
+
 ```powershell
 uv run python scripts\install_vllm_windows.py --check
-# after a matching community wheel is installed in this env:
-uv run python scripts\install_vllm_windows.py --check --write-env
+uv run python scripts\install_vllm_windows.py --install --wheel-url <whl-url> --yes --write-env
 uv run python scripts\start_vllm.py --daemon --native
 uv run python scripts\start_vllm_trained.py --daemon --native
 ```
+
+`--install` adds the PyTorch cu130 extra index (`--index-strategy unsafe-best-match` for uv).
+Native start then:
+
+- puts venv `Scripts` (ninja) and `tvm_ffi/lib` on PATH / DLL search
+- defaults `VLLM_USE_FLASHINFER_SAMPLER=0` (FlashInfer sampler JIT needs ninja+MSVC)
+- stubs `xgrammar` if the community DLL fails, so chat serving still starts
+- fails fast if the process dies before `/v1/models`
 
 Typical community builds:
 
@@ -232,7 +243,7 @@ Typical community builds:
 - https://github.com/aivrar/vllm-windows-build/releases
 
 Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures such as
-`Spark2_5ForCausalLM` may still fail even after a successful Windows install.
+`Spark2_5ForCausalLM` still need `--engine hf` even after a successful Windows install.
 
 ---
 
@@ -272,6 +283,7 @@ Windows community wheel install (never auto-selected):
 ```powershell
 uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\install_vllm_windows.py --install --wheel-url https://example.invalid/vllm.whl --yes --write-env
+# SystemPanic v0.26 cu132 example extra index is applied automatically
 ```
 
 ## 5. Train

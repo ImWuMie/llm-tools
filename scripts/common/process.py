@@ -62,9 +62,8 @@ def start_process(
     daemon: bool = False,
 ) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    merged_env = os.environ.copy()
-    if env:
-        merged_env.update(env)
+    # `env` is a complete mapping when provided so callers can drop toolchain-only keys.
+    merged_env = dict(env) if env is not None else os.environ.copy()
     merged_env.setdefault("PYTHONUTF8", "1")
     merged_env.setdefault("PYTHONIOENCODING", "utf-8")
 
@@ -118,6 +117,30 @@ def wait_for(predicate, timeout: float, interval: float = 1.0, description: str 
         time.sleep(interval)
     LOGGER.error("Timed out waiting for %s after %.1fs.", description, timeout)
     return False
+
+
+def wait_for_or_exit(
+    proc: subprocess.Popen,
+    predicate,
+    timeout: float,
+    interval: float = 1.0,
+    description: str = "condition",
+) -> str:
+    """Wait until predicate() is true, the process exits, or timeout.
+
+    Returns ``ok``, ``exited``, or ``timeout``.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return "ok"
+        code = proc.poll()
+        if code is not None:
+            LOGGER.error("%s process exited with code %s before becoming ready.", description, code)
+            return "exited"
+        time.sleep(interval)
+    LOGGER.error("Timed out waiting for %s after %.1fs.", description, timeout)
+    return "timeout"
 
 
 def current_python() -> str:

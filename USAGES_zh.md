@@ -118,8 +118,9 @@ DOWNLOAD_DIR / MODEL_OUTPUT_NAME
 | `QUANTIZATION` | 空 | vLLM 量化方法（如有） |
 | `VLLM_TRUST_REMOTE_CODE` | `1` | Qwen 等模型需要 |
 | `VLLM_MAX_NUM_SEQS` | `16` | 并发序列数 |
-| `VLLM_HEALTH_TIMEOUT` | `180` | 等待 `/v1/models` 的秒数 |
+| `VLLM_HEALTH_TIMEOUT` | `600` | 等待 `/v1/models` 的秒数 |
 | `VLLM_WINDOWS_BACKEND` | `wsl` | `wsl` / `docker` / `native` / `auto` / `fail` |
+| `VLLM_USE_FLASHINFER_SAMPLER` | `0` | 原生 Windows 默认关闭；仅在 ninja+MSVC 能 JIT 时设为 `1` |
 
 ---
 
@@ -139,7 +140,7 @@ uv run python scripts\download_model.py --source auto --update-env
 | 参数 | 含义 |
 | --- | --- |
 | `--source auto\|hf\|modelscope` | 覆盖 `MODEL_SOURCE` |
-| `--model-id` | 两个源的回退 ID |
+| `--model-id` | 覆盖两个源的 `MODEL_ID`，优先于 `.env` 里的 `HF_MODEL_ID` / `MODELSCOPE_MODEL_ID` |
 | `--hf-model-id` | Hugging Face 仓库 |
 | `--modelscope-model-id` | ModelScope ID |
 | `--revision` | 回退 revision |
@@ -196,7 +197,7 @@ uv run python scripts\stop_vllm.py
 1. 校验本地模型文件。
 2. 端口被占用则失败。
 3. daemon 模式写入 `run/vllm.pid` 和 `logs/vllm.log`。
-4. 轮询 `GET /v1/models`，直到健康或超过 `VLLM_HEALTH_TIMEOUT`。
+4. 轮询 `GET /v1/models`，直到健康或超过 `VLLM_HEALTH_TIMEOUT`。进程若提前退出，启动器会立即失败并打印日志尾部。
 
 停止：
 
@@ -214,16 +215,25 @@ uv run python scripts/stop_vllm.py --pid-file run/vllm.pid --timeout 20
 
 ## 4.1 可选：原生 Windows vLLM
 
-官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（`vllm-windows`），
-请装在 `uv sync --extra infer` **之外**（该 extra 只给 Linux）。
+官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（llm-windows），
+安装在 uv sync --extra infer **之外**（该 extra 只给 Linux）。
 
-```powershell
+建议用独立的 Python 3.12 环境（例如 .venv-vllm-win），避免非官方 wheel 和 uv sync --extra train 混装。
+
+`powershell
 uv run python scripts\install_vllm_windows.py --check
-# 在当前环境安装匹配的社区 wheel 之后：
-uv run python scripts\install_vllm_windows.py --check --write-env
+uv run python scripts\install_vllm_windows.py --install --wheel-url <whl-url> --yes --write-env
 uv run python scripts\start_vllm.py --daemon --native
 uv run python scripts\start_vllm_trained.py --daemon --native
-```
+`
+
+--install 会自动加上 PyTorch cu130 extra index（uv 使用 --index-strategy unsafe-best-match）。
+原生启动还会：
+
+- 把 venv 的 Scripts（ninja）和 	vm_ffi/lib 加到 PATH / DLL 搜索路径
+- 默认 VLLM_USE_FLASHINFER_SAMPLER=0（FlashInfer sampler JIT 需要 ninja+MSVC）
+- 社区 xgrammar DLL 失败时打桩，聊天服务仍可启动
+- 进程在 /v1/models 就绪前退出则立即失败
 
 常见社区构建：
 
@@ -231,11 +241,8 @@ uv run python scripts\start_vllm_trained.py --daemon --native
 - https://github.com/devnen/vllm-windows/releases
 - https://github.com/aivrar/vllm-windows-build/releases
 
-Python（常见为 3.12）、CUDA、GPU 架构必须与 wheel 一致。像 `Spark2_5ForCausalLM`
-这种自定义结构，即便 Windows 包能装上，vLLM 也不一定能加载。
-
----
-
+Python（常见为 3.12）、CUDA、GPU 架构必须与 wheel 一致。像 Spark2_5ForCausalLM
+这种自定义结构，即便 Windows 包能装上，仍需 --engine hf。
 
 ---
 

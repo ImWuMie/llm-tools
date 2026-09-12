@@ -23,7 +23,14 @@ LOGGER = setup_logging("llm_tools.download")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download a model from Hugging Face and/or ModelScope.")
     parser.add_argument("--source", choices=["auto", "hf", "modelscope"], default=None)
-    parser.add_argument("--model-id", default=None, help="Fallback model id used by both sources.")
+    parser.add_argument(
+        "--model-id",
+        default=None,
+        help=(
+            "Override MODEL_ID for both sources. Takes priority over HF_MODEL_ID / "
+            "MODELSCOPE_MODEL_ID from .env unless --hf-model-id / --modelscope-model-id is set."
+        ),
+    )
     parser.add_argument("--hf-model-id", default=None)
     parser.add_argument("--modelscope-model-id", default=None)
     parser.add_argument("--revision", default=None, help="Fallback revision if source-specific revision is empty.")
@@ -49,11 +56,21 @@ def pick(cli_value: str | None, *env_values: str | None) -> str | None:
 
 
 def model_id_for(source: str, args: argparse.Namespace, config) -> str:
-    generic = pick(args.model_id, config.get("MODEL_ID"))
+    # CLI source-specific > CLI --model-id > env source-specific > MODEL_ID
     if source == "hf":
-        value = pick(args.hf_model_id, config.get("HF_MODEL_ID"), generic)
+        value = pick(
+            args.hf_model_id,
+            args.model_id,
+            config.get("HF_MODEL_ID"),
+            config.get("MODEL_ID"),
+        )
     else:
-        value = pick(args.modelscope_model_id, config.get("MODELSCOPE_MODEL_ID"), generic)
+        value = pick(
+            args.modelscope_model_id,
+            args.model_id,
+            config.get("MODELSCOPE_MODEL_ID"),
+            config.get("MODEL_ID"),
+        )
     if not value:
         raise ConfigError(
             f"No model id configured for source `{source}`. "
@@ -88,17 +105,20 @@ def build_output_dir(args: argparse.Namespace, config) -> Path:
         download_root = PROJECT_ROOT / "models"
     if not download_root.is_absolute():
         download_root = PROJECT_ROOT / download_root
-    fallback_id = pick(
-        args.output_name,
-        config.get("MODEL_OUTPUT_NAME"),
-        args.model_id,
-        args.hf_model_id,
-        args.modelscope_model_id,
-        config.get("MODEL_ID"),
-        config.get("HF_MODEL_ID"),
-        config.get("MODELSCOPE_MODEL_ID"),
-    )
-    name = pick(args.output_name, config.get("MODEL_OUTPUT_NAME"), Path(fallback_id).name if fallback_id else None)
+    cli_id = pick(args.model_id, args.hf_model_id, args.modelscope_model_id)
+    if args.output_name:
+        name = args.output_name
+    elif cli_id:
+        # A CLI model id should not reuse the .env folder name (often a different model).
+        name = Path(cli_id).name
+    else:
+        fallback_id = pick(
+            config.get("MODEL_OUTPUT_NAME"),
+            config.get("MODEL_ID"),
+            config.get("HF_MODEL_ID"),
+            config.get("MODELSCOPE_MODEL_ID"),
+        )
+        name = pick(config.get("MODEL_OUTPUT_NAME"), Path(fallback_id).name if fallback_id else None)
     if not name:
         raise ConfigError("MODEL_OUTPUT_NAME is required so Hugging Face and ModelScope share one local path.")
     return download_root.resolve() / name
