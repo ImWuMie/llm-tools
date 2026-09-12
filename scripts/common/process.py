@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import MutableMapping
 from pathlib import Path
 
 import psutil
@@ -14,6 +15,27 @@ from .logging_utils import setup_logging
 from .paths import ensure_dir
 
 LOGGER = setup_logging("llm_tools.process")
+
+
+def sanitize_omp_env(env: MutableMapping[str, str]) -> MutableMapping[str, str]:
+    """Drop OMP_NUM_THREADS values libgomp rejects (empty, 0, non-integers)."""
+    omp = env.get("OMP_NUM_THREADS")
+    if omp is None:
+        return env
+    text = str(omp).strip()
+    try:
+        value = int(text)
+    except ValueError:
+        env.pop("OMP_NUM_THREADS", None)
+        return env
+    if value < 1:
+        env.pop("OMP_NUM_THREADS", None)
+    return env
+
+
+def reset_log_file(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
 
 
 def pid_file(pid_dir: Path, name: str) -> Path:
@@ -63,13 +85,12 @@ def start_process(
     daemon: bool = False,
 ) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    reset_log_file(log_path)
     merged_env = dict(env) if env is not None else os.environ.copy()
     merged_env.setdefault("PYTHONUTF8", "1")
     merged_env.setdefault("PYTHONIOENCODING", "utf-8")
     merged_env.setdefault("PYTHONUNBUFFERED", "1")
-    omp = merged_env.get("OMP_NUM_THREADS")
-    if omp is not None and str(omp).strip() in {"", "0", "none", "null"}:
-        merged_env.pop("OMP_NUM_THREADS", None)
+    sanitize_omp_env(merged_env)
 
     stdout = None if not daemon else open(log_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
     stderr = None if not daemon else subprocess.STDOUT

@@ -272,6 +272,9 @@ uv run python scripts/stop_vllm.py
 `INFER_ENGINE=auto` picks vLLM when `model_type` looks supported **or** a matching
 out-of-tree plugin is visible in this env; otherwise `hf`.
 
+Starting a server rewrites Spark nested `rope_parameters` in `config.json` so
+transformers 5.x does not inject a float `rope_theta` sibling (the `'float' object has no attribute 'get'` crash). Per-layer `full_attention` / `sliding_attention` maps are kept; a dict sentinel is stored at `rope_parameters.rope_theta`. `logs/vllm.log` is truncated on every start.
+
 Quantized export (converters must already be installed):
 
 ```bash

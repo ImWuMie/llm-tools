@@ -201,6 +201,9 @@ def apply_runtime_env(config: AppConfig) -> None:
         os.environ["MODELSCOPE_ENDPOINT"] = ms_endpoint
     ensure_dir(config.require_path("LOG_DIR") if config.get("LOG_DIR") else config.project_root / "logs")
     ensure_dir(config.require_path("PID_DIR") if config.get("PID_DIR") else config.project_root / "run")
+    from .process import sanitize_omp_env
+
+    sanitize_omp_env(os.environ)
     try:
         validate_loaded_config(config)
     except SchemaError as exc:

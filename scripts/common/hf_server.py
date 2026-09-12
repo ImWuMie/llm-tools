@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .logging_utils import setup_logging
+from .model_config import ensure_compatible_model_config
 
 LOGGER = setup_logging("llm_tools.hf_server")
 
@@ -34,6 +35,7 @@ def load_causal_lm(model_dir: Path, adapter_path: Path | None = None):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    ensure_compatible_model_config(model_dir)
     LOGGER.info("Loading transformers model from %s", model_dir)
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
