@@ -428,6 +428,7 @@ Python 辅助脚本：
 ```bash
 uv run python examples/chat.py --prompt "用一句话介绍 LoRA。"
 uv run python examples/chat.py --stream --model trained
+# 与 vLLM 相同的 OpenAI SSE：POST /v1/chat/completions ，stream=true
 uv run python examples/chat.py --system "You are a concise assistant." --prompt "你好"
 ```
 

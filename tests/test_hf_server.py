@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from common.hf_server import (
     build_generate_kwargs,
     from_pretrained_kwargs,
+    openai_stream_chunk,
     resolve_max_tokens,
     resolve_temperature,
     sanitize_generation_config,
@@ -55,3 +56,25 @@ def test_build_generate_kwargs_omits_temperature_when_greedy() -> None:
     sampled = build_generate_kwargs(max_new_tokens=16, temperature=0.8, tokenizer=tokenizer)
     assert sampled["do_sample"] is True
     assert sampled["temperature"] == 0.8
+
+
+def test_openai_stream_chunk_matches_vllm_chat_shape() -> None:
+    first = openai_stream_chunk(
+        completion_id="chatcmpl-x",
+        created=1,
+        model_name="spark",
+        delta={"role": "assistant"},
+    )
+    assert first["object"] == "chat.completion.chunk"
+    assert first["choices"][0]["delta"] == {"role": "assistant"}
+    assert first["choices"][0]["finish_reason"] is None
+    last = openai_stream_chunk(
+        completion_id="chatcmpl-x",
+        created=1,
+        model_name="spark",
+        delta={},
+        finish_reason="stop",
+        usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    )
+    assert last["choices"][0]["finish_reason"] == "stop"
+    assert last["usage"]["completion_tokens"] == 2

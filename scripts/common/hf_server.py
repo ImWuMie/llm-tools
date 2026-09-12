@@ -171,34 +171,121 @@ def generate_chat(messages: list[dict[str, str]], *, max_tokens: int, temperatur
     return result["text"]
 
 
-def generate_chat_result(
-    messages: list[dict[str, str]],
+def _prepare_generate(
+    messages: list[dict[str, str]] | None,
     *,
     max_tokens: int,
     temperature: float,
-    enable_thinking: bool = False,
-) -> dict[str, Any]:
+    enable_thinking: bool,
+    prompt: str | None = None,
+) -> tuple[Any, Any, dict[str, Any], dict[str, Any], int]:
     tokenizer = _STATE["tokenizer"]
     model = _STATE["model"]
-    prompt = render_chat_prompt(tokenizer, messages, enable_thinking=enable_thinking)
-    inputs = tokenizer(prompt, return_tensors="pt")
+    if messages is not None:
+        prompt_text = render_chat_prompt(tokenizer, messages, enable_thinking=enable_thinking)
+    else:
+        prompt_text = prompt or ""
+    inputs = tokenizer(prompt_text, return_tensors="pt")
     device = _model_device(model)
     inputs = {key: value.to(device) for key, value in inputs.items()}
-    import torch
     gen_kwargs = build_generate_kwargs(max_new_tokens=max_tokens, temperature=temperature, tokenizer=tokenizer)
+    prompt_tokens = int(inputs["input_ids"].shape[-1])
     LOGGER.info(
         "Generating max_new_tokens=%s do_sample=%s prompt_tokens=%s thinking=%s",
         gen_kwargs["max_new_tokens"],
         gen_kwargs["do_sample"],
-        int(inputs["input_ids"].shape[-1]),
+        prompt_tokens,
         enable_thinking,
     )
-    with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            **gen_kwargs,
+    return tokenizer, model, inputs, gen_kwargs, prompt_tokens
+
+
+def iter_chat_text(
+    messages: list[dict[str, str]] | None = None,
+    *,
+    max_tokens: int,
+    temperature: float,
+    enable_thinking: bool = False,
+    prompt: str | None = None,
+):
+    """Yield decoded text pieces as they are generated (SSE-friendly)."""
+    import torch
+    from threading import Thread
+
+    tokenizer, model, inputs, gen_kwargs, prompt_tokens = _prepare_generate(
+        messages,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        enable_thinking=enable_thinking,
+    )
+    try:
+        from transformers import TextIteratorStreamer
+    except Exception:
+        result = generate_chat_result(
+            messages,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            enable_thinking=enable_thinking,
         )
-    prompt_len = int(inputs["input_ids"].shape[-1])
+        if result["text"]:
+            yield result["text"], None
+        yield "", result
+        return
+
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    pieces: list[str] = []
+
+    def _run() -> None:
+        with torch.no_grad():
+            model.generate(**inputs, **gen_kwargs, streamer=streamer)
+
+    thread = Thread(target=_run, daemon=True)
+    thread.start()
+    for piece in streamer:
+        if not piece:
+            continue
+        pieces.append(piece)
+        yield piece, None
+    thread.join()
+    text = "".join(pieces)
+    try:
+        completion_tokens = len(tokenizer.encode(text, add_special_tokens=False))
+    except Exception:
+        completion_tokens = max(len(pieces), 1 if text else 0)
+    if completion_tokens == 0:
+        LOGGER.warning(
+            "Model generated 0 new tokens (prompt_tokens=%s eos_token_id=%s).",
+            prompt_tokens,
+            tokenizer.eos_token_id,
+        )
+    yield "", {
+        "text": text,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+
+
+def generate_chat_result(
+    messages: list[dict[str, str]] | None = None,
+    *,
+    max_tokens: int,
+    temperature: float,
+    enable_thinking: bool = False,
+    prompt: str | None = None,
+) -> dict[str, Any]:
+    import torch
+    tokenizer, model, inputs, gen_kwargs, prompt_len = _prepare_generate(
+        messages,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        enable_thinking=enable_thinking,
+    )
+    with torch.no_grad():
+        output = model.generate(**inputs, **gen_kwargs)
     generated = output[0][prompt_len:]
     text = tokenizer.decode(generated, skip_special_tokens=True)
     completion_tokens = int(generated.shape[-1]) if hasattr(generated, "shape") else 0
@@ -228,6 +315,27 @@ def _write_sse(handler: BaseHTTPRequestHandler, payload: dict[str, Any] | str) -
     handler.wfile.flush()
 
 
+def openai_stream_chunk(
+    *,
+    completion_id: str,
+    created: int,
+    model_name: str,
+    delta: dict[str, Any],
+    finish_reason: str | None = None,
+    usage: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model_name,
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+    }
+    if usage is not None:
+        payload["usage"] = usage
+    return payload
+
+
 class OpenAIHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         LOGGER.info("%s - %s", self.address_string(), fmt % args)
@@ -251,7 +359,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
         if path not in {"/v1/chat/completions", "/v1/completions"}:
-            _json(self, 404, {"error": {"message": "not found"}})
+            _json(self, 404, {"error": {"message": "The server does not support this endpoint. Use /v1/models, /v1/chat/completions, or /v1/completions."}})
             return
         if not _authorize(self, _STATE.get("api_key")):
             _json(self, 401, {"error": {"message": "invalid api key"}})
@@ -263,72 +371,175 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             _json(self, 400, {"error": {"message": "invalid json"}})
             return
-        messages = payload.get("messages")
-        if not messages:
-            prompt = payload.get("prompt") or ""
-            messages = [{"role": "user", "content": str(prompt)}]
+        chat_mode = path == "/v1/chat/completions"
+        messages = payload.get("messages") if chat_mode else None
+        prompt = None
+        if not chat_mode:
+            raw_prompt = payload.get("prompt") or ""
+            prompt = raw_prompt[0] if isinstance(raw_prompt, list) and raw_prompt else str(raw_prompt)
+        elif not messages:
+            prompt_text = payload.get("prompt") or ""
+            messages = [{"role": "user", "content": str(prompt_text)}]
         template_kwargs = payload.get("chat_template_kwargs") if isinstance(payload.get("chat_template_kwargs"), dict) else {}
         enable_thinking = bool(payload.get("enable_thinking", template_kwargs.get("enable_thinking", False)))
+        model_name = payload.get("model") or _STATE["served_name"]
+        completion_id = ("chatcmpl-" if chat_mode else "cmpl-") + uuid.uuid4().hex[:12]
+        created = int(time.time())
+        max_tokens = resolve_max_tokens(payload)
+        temperature = resolve_temperature(payload)
+        include_usage = True
+        stream_options = payload.get("stream_options")
+        if isinstance(stream_options, dict) and "include_usage" in stream_options:
+            include_usage = bool(stream_options.get("include_usage"))
+        if payload.get("stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            sent_role = False
+            result = {"text": "", "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            try:
+                for piece, stats in iter_chat_text(
+                    messages,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    enable_thinking=enable_thinking,
+                ):
+                    if stats is not None:
+                        result = stats
+                        continue
+                    if chat_mode and not sent_role:
+                        _write_sse(
+                            self,
+                            openai_stream_chunk(
+                                completion_id=completion_id,
+                                created=created,
+                                model_name=model_name,
+                                delta={"role": "assistant"},
+                            ),
+                        )
+                        sent_role = True
+                    if not piece:
+                        continue
+                    if chat_mode:
+                        _write_sse(
+                            self,
+                            openai_stream_chunk(
+                                completion_id=completion_id,
+                                created=created,
+                                model_name=model_name,
+                                delta={"content": piece},
+                            ),
+                        )
+                    else:
+                        _write_sse(
+                            self,
+                            {
+                                "id": completion_id,
+                                "object": "text_completion",
+                                "created": created,
+                                "model": model_name,
+                                "choices": [{"index": 0, "text": piece, "logprobs": None, "finish_reason": None}],
+                            },
+                        )
+                usage = {
+                    "prompt_tokens": result["prompt_tokens"],
+                    "completion_tokens": result["completion_tokens"],
+                    "total_tokens": result["total_tokens"],
+                }
+                if chat_mode:
+                    if not sent_role:
+                        _write_sse(
+                            self,
+                            openai_stream_chunk(
+                                completion_id=completion_id,
+                                created=created,
+                                model_name=model_name,
+                                delta={"role": "assistant"},
+                            ),
+                        )
+                    _write_sse(
+                        self,
+                        openai_stream_chunk(
+                            completion_id=completion_id,
+                            created=created,
+                            model_name=model_name,
+                            delta={},
+                            finish_reason="stop",
+                            usage=usage if include_usage else None,
+                        ),
+                    )
+                else:
+                    chunk = {
+                        "id": completion_id,
+                        "object": "text_completion",
+                        "created": created,
+                        "model": model_name,
+                        "choices": [{"index": 0, "text": "", "logprobs": None, "finish_reason": "stop"}],
+                    }
+                    if include_usage:
+                        chunk["usage"] = usage
+                    _write_sse(self, chunk)
+                _write_sse(self, "[DONE]")
+            except Exception as exc:
+                LOGGER.exception("Streaming generation failed")
+                _write_sse(self, {"error": {"message": str(exc)}})
+                _write_sse(self, "[DONE]")
+            return
         try:
             result = generate_chat_result(
                 messages,
-                max_tokens=resolve_max_tokens(payload),
-                temperature=resolve_temperature(payload),
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 enable_thinking=enable_thinking,
             )
         except Exception as exc:
             LOGGER.exception("Generation failed")
             _json(self, 500, {"error": {"message": str(exc)}})
             return
-        model_name = payload.get("model") or _STATE["served_name"]
-        completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        created = int(time.time())
         usage = {
             "prompt_tokens": result["prompt_tokens"],
             "completion_tokens": result["completion_tokens"],
             "total_tokens": result["total_tokens"],
         }
-        if payload.get("stream"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            _write_sse(
+        if chat_mode:
+            _json(
                 self,
+                200,
                 {
                     "id": completion_id,
-                    "object": "chat.completion.chunk",
+                    "object": "chat.completion",
                     "created": created,
                     "model": model_name,
-                    "choices": [{"index": 0, "delta": {"role": "assistant", "content": result["text"]}, "finish_reason": None}],
-                },
-            )
-            _write_sse(
-                self,
-                {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": model_name,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": result["text"]},
+                            "logprobs": None,
+                            "finish_reason": "stop",
+                        }
+                    ],
                     "usage": usage,
                 },
             )
-            _write_sse(self, "[DONE]")
             return
         _json(
             self,
             200,
             {
                 "id": completion_id,
-                "object": "chat.completion",
+                "object": "text_completion",
                 "created": created,
                 "model": model_name,
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": result["text"]},
+                        "text": result["text"],
+                        "logprobs": None,
                         "finish_reason": "stop",
                     }
                 ],
