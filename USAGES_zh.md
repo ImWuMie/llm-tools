@@ -260,7 +260,7 @@ uv run python scripts/stop_vllm.py --service hf
 
 `INFER_ENGINE=auto` 在本环境能识别模型类型或 Spark plugin 时走 vLLM，否则走 `hf`。plugin 必须装进 `uv run` 的 `.venv`，装在 AutoDL 系统 Python 里不生效。
 
-启动时会改写 Spark 分层 `rope_parameters`：保留 `full_attention` / `sliding_attention`，并加上 dict 哨兵 `rope_theta`，避免 transformers 5.x 注入 float 后报 `'float' object has no attribute 'get'`。若自定义模型仍用 transformers 4.x 的 list `_tied_weights_keys`，启动时会转成 dict。每次启动会清空 `logs/vllm.log`。
+启动时会改写 Spark 分层 `rope_parameters`：保留 `full_attention` / `sliding_attention`，并加上 dict 哨兵 `rope_theta`，避免 transformers 5.x 注入 float 后报 `'float' object has no attribute 'get'`。若自定义模型仍用 transformers 4.x 的 list `_tied_weights_keys` 或 `create_causal_mask(input_embeds=...)`，启动时会适配到 transformers 5。每次启动会清空 `logs/vllm.log`。
 
 
 量化导出（需自行安装转换器）：

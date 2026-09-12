@@ -10,6 +10,14 @@ from .logging_utils import setup_logging
 LOGGER = setup_logging("llm_tools.transformers_compat")
 
 _PATCHED_ATTR = "_llm_tools_tied_weights_list_compat"
+_MASK_PATCHED_ATTR = "_llm_tools_mask_kwargs_compat"
+_MASK_FUNCTIONS = (
+    "create_causal_mask",
+    "create_sliding_window_causal_mask",
+    "create_chunked_causal_mask",
+    "create_bidirectional_mask",
+    "create_bidirectional_sliding_window_mask",
+)
 
 
 def list_tied_weights_to_dict(model: Any, keys: Sequence[str]) -> dict[str, str]:
@@ -114,7 +122,81 @@ def patch_modeling_tied_weights_file(model_dir: Path) -> bool:
     return changed_any
 
 
+def normalize_mask_kwargs(kwargs: dict[str, Any], accepted: set[str] | None = None) -> dict[str, Any]:
+    """Adapt Spark/transformers-4 mask kwargs to transformers 5 signatures."""
+    out = dict(kwargs)
+    if "input_embeds" in out and "inputs_embeds" not in out:
+        out["inputs_embeds"] = out.pop("input_embeds")
+    elif "input_embeds" in out:
+        out.pop("input_embeds")
+    if accepted is None:
+        return out
+    if "inputs_embeds" in out and "inputs_embeds" not in accepted and "input_embeds" in accepted:
+        out["input_embeds"] = out.pop("inputs_embeds")
+    return {key: value for key, value in out.items() if key in accepted}
+
+
+def _wrap_mask_function(fn):  # noqa: ANN001
+    import inspect
+
+    try:
+        signature = inspect.signature(fn)
+        accepted = set(signature.parameters)
+        has_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    except (TypeError, ValueError):
+        accepted = None
+        has_var_kw = True
+
+    def wrapper(*args, **kwargs):  # noqa: ANN002, ANN003
+        filtered = normalize_mask_kwargs(kwargs, None if has_var_kw else accepted)
+        return fn(*args, **filtered)
+
+    setattr(wrapper, _MASK_PATCHED_ATTR, True)
+    wrapper.__name__ = getattr(fn, "__name__", "wrapped_mask")
+    wrapper.__wrapped__ = fn
+    return wrapper
+
+
+def apply_masking_kwargs_compat() -> bool:
+    """Accept `input_embeds` and drop unknown kwargs such as `cache_position`."""
+    try:
+        import transformers.masking_utils as masking_utils
+    except Exception:
+        return False
+    patched = False
+    for name in _MASK_FUNCTIONS:
+        fn = getattr(masking_utils, name, None)
+        if fn is None or getattr(fn, _MASK_PATCHED_ATTR, False):
+            continue
+        setattr(masking_utils, name, _wrap_mask_function(fn))
+        patched = True
+    return patched
+
+
+def patch_modeling_mask_kwargs_file(model_dir: Path) -> bool:
+    """Rename mask kwarg `input_embeds` to `inputs_embeds` in local custom modeling code."""
+    changed_any = False
+    for path in Path(model_dir).glob("modeling*.py"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        new_text = text.replace('"input_embeds":', '"inputs_embeds":').replace("'input_embeds':", "'inputs_embeds':")
+        if new_text == text:
+            continue
+        try:
+            path.write_text(new_text, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            LOGGER.warning("Cannot patch %s mask kwargs: %s", path, exc)
+            continue
+        LOGGER.info("Patched %s mask kwargs input_embeds -> inputs_embeds for transformers 5.x", path)
+        changed_any = True
+    return changed_any
+
+
 def apply_transformers5_compat(model_dir: Path | None = None) -> None:
     if model_dir is not None:
         patch_modeling_tied_weights_file(model_dir)
+        patch_modeling_mask_kwargs_file(model_dir)
     apply_tied_weights_list_compat()
+    apply_masking_kwargs_compat()
