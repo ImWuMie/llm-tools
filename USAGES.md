@@ -158,7 +158,7 @@ uv run python scripts\download_model.py --source auto --update-env
 Behavior:
 
 1. CLI overrides `.env`.
-2. `auto` tries `MODEL_SOURCE_PRIORITY` in order and falls back on failure.
+2. `auto` tries `MODEL_SOURCE_PRIORITY` in order and falls back on failure. `--source auto` **overrides** `.env MODEL_SOURCE`; omit `--source` to honor `.env`. A hang is not a failure, so AutoDL / mainland networks should use `--source modelscope` or `MODEL_SOURCE_PRIORITY=modelscope,hf`.
 3. If the target already has `config.json` + tokenizer + non-empty weights (and safetensors shards if an index exists), download is skipped unless `--force`.
 4. On total failure the process exits non-zero and prints next steps (mirror, token, model id).
 

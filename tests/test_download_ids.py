@@ -9,6 +9,7 @@ from download_model import build_output_dir, model_id_for
 class _Cfg:
     def __init__(self, values: dict[str, str]) -> None:
         self.values = values
+        self.env_path = Path(".env")
 
     def get(self, key: str, default: str | None = None) -> str | None:
         value = self.values.get(key)
@@ -28,6 +29,7 @@ def _args(**kwargs) -> Namespace:
         modelscope_model_id=None,
         output_dir=None,
         output_name=None,
+        source=None,
     )
     base.update(kwargs)
     return Namespace(**base)
@@ -59,3 +61,21 @@ def test_cli_model_id_uses_its_own_folder(tmp_path: Path) -> None:
     out = build_output_dir(args, config)
     assert out.name == "Qwen2.5-0.5B-Instruct"
     assert out.parent == (tmp_path / "models").resolve()
+
+
+def test_env_model_source_used_when_cli_omitted() -> None:
+    from download_model import resolve_source_choice
+
+    config = _Cfg({"MODEL_SOURCE": "modelscope"})
+    source, origin = resolve_source_choice(_args(), config)
+    assert source == "modelscope"
+    assert origin.startswith(".env")
+
+
+def test_cli_source_auto_overrides_env_modelscope() -> None:
+    from download_model import resolve_source_choice
+
+    config = _Cfg({"MODEL_SOURCE": "modelscope"})
+    source, origin = resolve_source_choice(_args(source="auto"), config)
+    assert source == "auto"
+    assert origin == "cli --source"

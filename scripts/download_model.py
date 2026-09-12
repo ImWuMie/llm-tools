@@ -99,6 +99,26 @@ def endpoint_for(source: str, config) -> str | None:
     return config.get("MODELSCOPE_ENDPOINT")
 
 
+def resolve_source_choice(args: argparse.Namespace, config) -> tuple[str, str]:
+    """CLI --source wins over .env MODEL_SOURCE. Returns (source, origin)."""
+    cli = (args.source or "").strip().lower()
+    env_source = (config.get("MODEL_SOURCE") or "").strip().lower()
+    env_path = getattr(config, "env_path", ".env")
+    if cli:
+        if cli == "auto" and env_source not in {"", "auto"}:
+            LOGGER.warning(
+                "CLI --source auto overrides .env MODEL_SOURCE=%s from %s. "
+                "Omit --source to honor .env, or pass --source %s.",
+                env_source,
+                env_path,
+                env_source,
+            )
+        return cli, "cli --source"
+    if env_source:
+        return env_source, f".env MODEL_SOURCE ({env_path})"
+    return "auto", "default"
+
+
 def build_output_dir(args: argparse.Namespace, config) -> Path:
     download_root = Path(args.output_dir) if args.output_dir else config.get_path("DOWNLOAD_DIR")
     if download_root is None:
@@ -166,10 +186,23 @@ def main() -> int:
     try:
         config = load_app_config()
         apply_runtime_env(config)
-        source = (args.source or config.get("MODEL_SOURCE") or "auto").strip().lower()
+        source, source_origin = resolve_source_choice(args, config)
         order = resolve_source_order(source, config.get("MODEL_SOURCE_PRIORITY"))
         output_dir = build_output_dir(args, config)
-        LOGGER.info("Resolved download order=%s output_dir=%s", order, output_dir)
+        LOGGER.info("Loaded %s", config.env_path)
+        LOGGER.info(
+            "source=%s (from %s) order=%s output_dir=%s",
+            source,
+            source_origin,
+            order,
+            output_dir,
+        )
+        if source == "auto" and order[:1] == ["hf"]:
+            LOGGER.info(
+                "auto tries Hugging Face first. A hang is not a failure, so ModelScope "
+                "will not start until HF errors. On AutoDL / mainland networks use "
+                "`--source modelscope` or set MODEL_SOURCE_PRIORITY=modelscope,hf."
+            )
 
         if maybe_skip(output_dir, args.force):
             if not args.skip_license_check:

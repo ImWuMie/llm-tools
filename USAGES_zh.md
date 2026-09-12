@@ -158,7 +158,7 @@ uv run python scripts\download_model.py --source auto --update-env
 行为：
 
 1. 命令行覆盖 `.env`。
-2. `auto` 按 `MODEL_SOURCE_PRIORITY` 依次尝试，失败则 fallback。
+2. `auto` 按 `MODEL_SOURCE_PRIORITY` 依次尝试，失败则 fallback。`--source auto` **会覆盖** `.env MODEL_SOURCE`；要用 .env 请不加 `--source`。卡住算失败，AutoDL / 国内网络请用 `--source modelscope` 或 `MODEL_SOURCE_PRIORITY=modelscope,hf`。
 3. 目标目录已有 `config.json`、tokenizer、非空权重（若存在 index 则还需分片齐全）时默认跳过，除非加 `--force`。
 4. 所有源都失败则非 0 退出，并打印下一步建议（镜像、token、模型 ID）。
 
