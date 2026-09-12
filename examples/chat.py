@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=None)
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--system", default=None)
+    parser.add_argument("--thinking", action="store_true", help="Enable Spark thinking / <think> in the chat template.")
     return parser.parse_args()
 
 
@@ -45,15 +46,21 @@ def main() -> int:
         messages.append({"role": "system", "content": args.system})
     messages.append({"role": "user", "content": args.prompt})
 
+    extra_body = None
+    if args.thinking:
+        extra_body = {"enable_thinking": True, "chat_template_kwargs": {"enable_thinking": True}}
+
     if args.stream:
-        stream = client.chat.completions.create(model=model, messages=messages, stream=True)
+        stream = client.chat.completions.create(
+            model=model, messages=messages, stream=True, extra_body=extra_body
+        )
         for chunk in stream:
             delta = chunk.choices[0].delta.content or ""
             print(delta, end="", flush=True)
         print()
         return 0
 
-    completion = client.chat.completions.create(model=model, messages=messages)
+    completion = client.chat.completions.create(model=model, messages=messages, extra_body=extra_body)
     print(completion.choices[0].message.content)
     return 0
 

@@ -6,6 +6,7 @@ from common.hf_server import (
     build_generate_kwargs,
     from_pretrained_kwargs,
     openai_stream_chunk,
+    resolve_enable_thinking,
     resolve_max_tokens,
     resolve_temperature,
     sanitize_generation_config,
@@ -78,3 +79,13 @@ def test_openai_stream_chunk_matches_vllm_chat_shape() -> None:
     )
     assert last["choices"][0]["finish_reason"] == "stop"
     assert last["usage"]["completion_tokens"] == 2
+
+
+def test_resolve_enable_thinking(monkeypatch) -> None:
+    monkeypatch.delenv("ENABLE_THINKING", raising=False)
+    monkeypatch.delenv("SPARK_ENABLE_THINKING", raising=False)
+    assert resolve_enable_thinking({}) is False
+    assert resolve_enable_thinking({"enable_thinking": True}) is True
+    assert resolve_enable_thinking({"chat_template_kwargs": {"enable_thinking": True}}) is True
+    monkeypatch.setenv("ENABLE_THINKING", "1")
+    assert resolve_enable_thinking({}) is True

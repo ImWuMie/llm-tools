@@ -442,6 +442,7 @@ Python helper:
 uv run python examples/chat.py --prompt "Explain LoRA in one sentence."
 uv run python examples/chat.py --stream --model trained
 # Same OpenAI SSE as vLLM: POST /v1/chat/completions with stream=true
+uv run python examples/chat.py --thinking --prompt "Why is the sky blue?"
 uv run python examples/chat.py --system "You are a concise assistant." --prompt "Hi"
 ```
 

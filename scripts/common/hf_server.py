@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -141,6 +142,16 @@ def resolve_temperature(payload: dict[str, Any]) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return 0.0
+
+
+def resolve_enable_thinking(payload: dict[str, Any]) -> bool:
+    template_kwargs = payload.get("chat_template_kwargs") if isinstance(payload.get("chat_template_kwargs"), dict) else {}
+    if "enable_thinking" in payload:
+        return bool(payload.get("enable_thinking"))
+    if "enable_thinking" in template_kwargs:
+        return bool(template_kwargs.get("enable_thinking"))
+    text = (os.environ.get("ENABLE_THINKING") or os.environ.get("SPARK_ENABLE_THINKING") or "").strip().lower()
+    return text in {"1", "true", "yes", "on"}
 
 
 def build_generate_kwargs(*, max_new_tokens: int, temperature: float, tokenizer) -> dict[str, Any]:
@@ -380,8 +391,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
         elif not messages:
             prompt_text = payload.get("prompt") or ""
             messages = [{"role": "user", "content": str(prompt_text)}]
-        template_kwargs = payload.get("chat_template_kwargs") if isinstance(payload.get("chat_template_kwargs"), dict) else {}
-        enable_thinking = bool(payload.get("enable_thinking", template_kwargs.get("enable_thinking", False)))
+        enable_thinking = resolve_enable_thinking(payload)
         model_name = payload.get("model") or _STATE["served_name"]
         completion_id = ("chatcmpl-" if chat_mode else "cmpl-") + uuid.uuid4().hex[:12]
         created = int(time.time())
