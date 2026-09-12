@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from common.hf_server import from_pretrained_kwargs
+from types import SimpleNamespace
+
+from common.hf_server import (
+    build_generate_kwargs,
+    from_pretrained_kwargs,
+    resolve_max_tokens,
+    resolve_temperature,
+    sanitize_generation_config,
+)
 
 
 def test_from_pretrained_kwargs_skips_device_map_without_accelerate() -> None:
@@ -18,3 +26,32 @@ def test_from_pretrained_kwargs_uses_device_map_with_accelerate() -> None:
 def test_from_pretrained_kwargs_cpu_has_no_device_map() -> None:
     kwargs = from_pretrained_kwargs(cuda=False, dtype="fp32", has_accelerate=True)
     assert "device_map" not in kwargs
+
+
+def test_sanitize_generation_config_clears_negative_top_k() -> None:
+    model = SimpleNamespace(generation_config=SimpleNamespace(top_k=-1, max_tokens=1048576, max_new_tokens=None))
+    sanitize_generation_config(model)
+    assert model.generation_config.top_k is None
+
+
+def test_resolve_max_tokens_prefers_completion_field() -> None:
+    assert resolve_max_tokens({}) == 256
+    assert resolve_max_tokens({"max_tokens": 32}) == 32
+    assert resolve_max_tokens({"max_completion_tokens": 64}) == 64
+    assert resolve_max_tokens({"max_tokens": 0}) == 1
+
+
+def test_resolve_temperature_keeps_zero() -> None:
+    assert resolve_temperature({}) == 0.0
+    assert resolve_temperature({"temperature": 0}) == 0.0
+    assert resolve_temperature({"temperature": 0.7}) == 0.7
+
+
+def test_build_generate_kwargs_omits_temperature_when_greedy() -> None:
+    tokenizer = SimpleNamespace(pad_token_id=2, eos_token_id=1)
+    greedy = build_generate_kwargs(max_new_tokens=16, temperature=0, tokenizer=tokenizer)
+    assert greedy["do_sample"] is False
+    assert "temperature" not in greedy
+    sampled = build_generate_kwargs(max_new_tokens=16, temperature=0.8, tokenizer=tokenizer)
+    assert sampled["do_sample"] is True
+    assert sampled["temperature"] == 0.8

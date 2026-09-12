@@ -18,7 +18,7 @@ LOGGER = setup_logging("llm_tools.chat")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Minimal OpenAI-compatible chat client.")
-    parser.add_argument("--prompt", default="用一句话介绍 LoRA。")
+    parser.add_argument("--prompt", default="Say hello in one sentence.")
     parser.add_argument("--model", default=None)
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--system", default=None)
