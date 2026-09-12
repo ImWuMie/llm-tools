@@ -215,7 +215,8 @@ uv run python scripts/stop_vllm.py --pid-file run/vllm.pid --timeout 20
 
 ## 4.1 可选：原生 Windows vLLM
 
-官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（llm-windows），
+官方 vLLM **不支持**原生 Windows。可选路径是社区 wheel（
+llm-windows），
 安装在 uv sync --extra infer **之外**（该 extra 只给 Linux）。
 
 建议用独立的 Python 3.12 环境（例如 .venv-vllm-win），避免非官方 wheel 和 uv sync --extra train 混装。
@@ -259,6 +260,9 @@ uv run python scripts/stop_vllm.py --service hf
 ```
 
 `INFER_ENGINE=auto` 在本环境能识别模型类型或 Spark plugin 时走 vLLM，否则走 `hf`。plugin 必须装进 `uv run` 的 `.venv`，装在 AutoDL 系统 Python 里不生效。
+
+vLLM 0.29 搭配新版 transformers 会在 Spark 分层 `rope_parameters` 上崩溃（`AttributeError: 'float' object has no attribute 'get'`）。`scripts/run_vllm_server.py` 会在同一进程里修补 HuggingFace Hub 绑定的 `validate_rope`。`VLLM_HOST` / `VLLM_PORT` 只属于本工具链，启动时会从子进程环境里摘掉，避免 vLLM 0.29 报未知环境变量。插件仍加载失败时用 `--engine hf`。
+
 
 量化导出（需自行安装转换器）：
 

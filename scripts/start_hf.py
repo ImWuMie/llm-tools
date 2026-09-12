@@ -10,13 +10,24 @@ from common.bootstrap import PROJECT_ROOT, ensure_sys_path
 ensure_sys_path()
 
 from common.env import ConfigError, apply_runtime_env, load_app_config
+from common.health import check_openai_models
 from common.hf_server import configure_runtime, load_causal_lm, serve_forever
 from common.logging_utils import setup_logging
 from common.preflight import run_preflight
-from common.process import current_python, is_pid_running, log_file, pid_file, port_in_use, read_pid, start_process, wait_for_or_exit, write_pid
+from common.process import (
+    current_python,
+    is_pid_running,
+    log_file,
+    pid_file,
+    port_in_use,
+    read_pid,
+    start_process,
+    wait_for_or_exit,
+    write_pid,
+)
 from common.secrets import redact_command
-from common.health import check_openai_models
 from common.validate_model import looks_like_lora
+from common.windows_vllm_runtime import serving_child_env
 
 LOGGER = setup_logging("llm_tools.start_hf")
 
@@ -58,6 +69,9 @@ def main() -> int:
         api_key = config.get("VLLM_API_KEY")
 
         if args.worker:
+            from common.rope_compat import apply_all_patches
+
+            apply_all_patches()
             tokenizer, model = load_causal_lm(model_dir, adapter)
             configure_runtime(tokenizer=tokenizer, model=model, served_name=served, api_key=api_key)
             serve_forever(host, port)
@@ -102,7 +116,7 @@ def main() -> int:
         daemon = bool(args.daemon and not args.foreground)
         log_path = log_file(log_dir, service_name)
         log_start = log_path.stat().st_size if log_path.is_file() else 0
-        proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=True)
+        proc = start_process(cmd, cwd=PROJECT_ROOT, log_path=log_path, daemon=True, env=serving_child_env())
         write_pid(pid_file(pid_dir, service_name), proc.pid)
         timeout = float(config.get("VLLM_HEALTH_TIMEOUT") or 180)
         result = wait_for_or_exit(

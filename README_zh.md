@@ -11,7 +11,7 @@
 
 > **Windows 注意：** vLLM 没有完善的原生 Windows 支持。Windows 请通过 **WSL2** 或 **Docker** 启动推理。LoRA 训练可以原生尝试；QLoRA / bitsandbytes 在 Windows 上会自动降级为普通 LoRA。
 >
-> 可选非官方路径：用 `scripts/install_vllm_windows.py --install --wheel-url URL --yes --write-env` 安装社区 `vllm-windows` wheel，再 `uv run python scripts/start_vllm.py --native`。原生启动会补 ninja PATH、默认关闭 FlashInfer sampler JIT，xgrammar DLL 失败时打桩。Spark 自定义架构仍需 `--engine hf`。
+> 可选非官方路径：用 `scripts/install_vllm_windows.py --install --wheel-url URL --yes --write-env` 安装社区 `vllm-windows` wheel，再 `uv run python scripts/start_vllm.py --native`。原生启动会补 ninja PATH、默认关闭 FlashInfer sampler JIT，xgrammar DLL 失败时打桩。Windows 原生路径上 Spark 仍需 `--engine hf`。Linux 上 vLLM + Spark plugin 会经 `scripts/run_vllm_server.py` 启动，并修补 transformers 对 Spark 分层 `rope_parameters` 的 RoPE 校验崩溃。
 
 [English README](README.md) · [完整用法](USAGES_zh.md) · [English usage](USAGES.md)
 

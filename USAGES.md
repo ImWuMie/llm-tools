@@ -272,6 +272,13 @@ uv run python scripts/stop_vllm.py
 `INFER_ENGINE=auto` picks vLLM when `model_type` looks supported **or** a matching
 out-of-tree plugin is visible in this env; otherwise `hf`.
 
+vLLM 0.29 + recent transformers crash on Spark nested `rope_parameters`
+(`AttributeError: 'float' object has no attribute 'get'`). `scripts/run_vllm_server.py`
+patches the **bound** HuggingFace Hub `validate_rope` validator before the API
+server starts. `VLLM_HOST` / `VLLM_PORT` are toolchain settings and are stripped
+from the child environment so vLLM 0.29 does not warn about unknown env vars.
+If the plugin still cannot load the architecture, use `--engine hf`.
+
 Quantized export (converters must already be installed):
 
 ```bash

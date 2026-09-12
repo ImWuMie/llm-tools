@@ -18,6 +18,7 @@ def test_native_child_env_strips_toolchain_keys_and_defaults_sampler(monkeypatch
     monkeypatch.setenv("VLLM_WINDOWS_BACKEND", "native")
     monkeypatch.setenv("VLLM_HEALTH_TIMEOUT", "180")
     monkeypatch.delenv("VLLM_USE_FLASHINFER_SAMPLER", raising=False)
+    monkeypatch.setenv("VLLM_HOST", "0.0.0.0")
     env = native_windows_child_env()
     for key in TOOLCHAIN_ONLY_ENV:
         assert key not in env
