@@ -5,10 +5,12 @@ from types import SimpleNamespace
 from common.hf_server import (
     build_generate_kwargs,
     from_pretrained_kwargs,
+    merge_reasoning_into_content,
     openai_stream_chunk,
     resolve_enable_thinking,
     resolve_max_tokens,
     resolve_temperature,
+    strip_wrapper_specials,
 )
 
 
@@ -82,3 +84,14 @@ def test_resolve_enable_thinking(monkeypatch) -> None:
     assert resolve_enable_thinking({"chat_template_kwargs": {"enable_thinking": True}}) is True
     monkeypatch.setenv("ENABLE_THINKING", "1")
     assert resolve_enable_thinking({}) is True
+
+
+def test_strip_wrapper_keeps_think_block() -> None:
+    tokenizer = SimpleNamespace(bos_token="<s>", eos_token="</s>", pad_token="<pad>", unk_token=None)
+    text = strip_wrapper_specials(tokenizer, "<s><think>plan</think>hello</s>")
+    assert text == "<think>plan</think>hello"
+
+
+def test_merge_reasoning_into_content() -> None:
+    assert merge_reasoning_into_content("answer", "plan") == "<think>plan</think>answer"
+    assert merge_reasoning_into_content("<think>plan</think>answer", "ignored") == "<think>plan</think>answer"

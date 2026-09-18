@@ -157,6 +157,45 @@ def render_chat_prompt(tokenizer, messages: list[dict[str, str]], *, enable_thin
         return tokenizer.apply_chat_template(messages, **kwargs)
 
 
+def strip_wrapper_specials(tokenizer, text: str) -> str:
+    """Remove bos/eos/pad wrappers but keep Spark ``<think>`` blocks."""
+    cleaned = str(text or "")
+    if tokenizer is None:
+        return cleaned.strip()
+    specials: list[str] = []
+    for name in ("bos_token", "eos_token", "pad_token", "unk_token"):
+        tok = getattr(tokenizer, name, None)
+        if tok and "think" not in str(tok).lower():
+            specials.append(str(tok))
+    for tok in sorted(set(specials), key=len, reverse=True):
+        cleaned = cleaned.replace(tok, "")
+    return cleaned.strip()
+
+
+def decode_generated_text(tokenizer, token_ids) -> str:
+    text = tokenizer.decode(token_ids, skip_special_tokens=False)
+    return strip_wrapper_specials(tokenizer, text)
+
+
+def merge_reasoning_into_content(content: str, reasoning: str | None) -> str:
+    text = str(content or "")
+    reason = str(reasoning or "").strip()
+    if reason and "<think>" not in text:
+        return f"<think>{reason}</think>{text}"
+    return text
+
+
+def assistant_message_payload(text: str) -> dict[str, str]:
+    import re
+
+    content = merge_reasoning_into_content(text, None)
+    message = {"role": "assistant", "content": content}
+    match = re.search(r"<think>(.*?)</think>", content, flags=re.S)
+    if match:
+        message["reasoning_content"] = match.group(1).strip()
+    return message
+
+
 def generate_chat(messages: list[dict[str, str]], *, max_tokens: int, temperature: float) -> str:
     result = generate_chat_result(messages, max_tokens=max_tokens, temperature=temperature)
     return result["text"]
@@ -225,7 +264,7 @@ def iter_chat_text(
         yield "", result
         return
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
     pieces: list[str] = []
 
     def _run() -> None:
@@ -278,7 +317,7 @@ def generate_chat_result(
     with torch.no_grad():
         output = model.generate(**inputs, **gen_kwargs)
     generated = output[0][prompt_len:]
-    text = tokenizer.decode(generated, skip_special_tokens=True)
+    text = decode_generated_text(tokenizer, generated)
     completion_tokens = int(generated.shape[-1]) if hasattr(generated, "shape") else 0
     if completion_tokens == 0:
         LOGGER.warning(
@@ -420,6 +459,9 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                         sent_role = True
                     if not piece:
                         continue
+                    piece = strip_wrapper_specials(_STATE.get("tokenizer"), piece)
+                    if not piece:
+                        continue
                     if chat_mode:
                         _write_sse(
                             self,
@@ -514,7 +556,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {"role": "assistant", "content": result["text"]},
+                            "message": assistant_message_payload(result["text"]),
                             "logprobs": None,
                             "finish_reason": "stop",
                         }

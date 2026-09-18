@@ -351,7 +351,12 @@ async function generateOnce(s, model){
   });
   const data = await res.json().catch(() => ({}));
   if(!res.ok) throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
-  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  const msg = data.choices && data.choices[0] && data.choices[0].message || {};
+  const reasoning = msg.reasoning_content || msg.reasoning || "";
+  let text = msg.content || "";
+  if (reasoning && text.indexOf("<think>") < 0) {
+    text = "<think>" + reasoning + "</think>" + text;
+  }
   if(!text) throw new Error("empty content");
   return text;
 }
