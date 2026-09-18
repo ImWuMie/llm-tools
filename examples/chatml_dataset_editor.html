@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ChatML 训练集编辑器</title>
+<style>
+:root{--bg:#0f1115;--panel:#171b22;--panel2:#1e242e;--line:#2b3340;--text:#e8edf4;--muted:#8b97a8;--accent:#6ea8fe;--user:#5b8def;--assistant:#3dd68c;--system:#c9a227}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 Segoe UI,PingFang SC,Microsoft YaHei,sans-serif}
+button,select,textarea{font:inherit;color:inherit}button{cursor:pointer}
+.app{display:grid;grid-template-columns:240px 1fr 460px;height:100%}
+.col{border-right:1px solid var(--line);min-height:0;display:flex;flex-direction:column}.col:last-child{border-right:0}
+header,.toolbar{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650}.muted{color:var(--muted)}
+.list,.turns{overflow:auto;padding:12px;flex:1}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer}
+.card.active{border-color:var(--accent)}.card .meta{font-size:12px;color:var(--muted)}
+.btn{background:#2a3340;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.btn:hover{border-color:var(--accent)}.btn.primary{background:#1d4ed8;border-color:#3b82f6}.btn.danger{background:#3a1d22;border-color:#7f1d1d}
+.turn{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
+.turn-head{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+textarea{width:100%;min-height:88px;resize:vertical;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
+select{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.role-user{color:var(--user)}.role-assistant{color:var(--assistant)}.role-system{color:var(--system)}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0c0f14;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;flex:1}
+.hint{padding:10px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
+.grow{margin-left:auto}input[type=file]{display:none}
+
+label.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:110px;flex:1}
+label.field input,label.field textarea{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;color:var(--text)}
+.gen{padding:12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;background:var(--panel)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.cands{overflow:auto;padding:10px;flex:1;min-height:120px}
+.cand{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--panel2)}
+.cand pre{max-height:180px;margin:8px 0}
+.status{font-size:12px;color:var(--muted);min-height:18px}
+input[type=number]{width:72px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;color:var(--text)}
+
+</style>
+</head>
+<body>
+<div class="app">
+<section class="col">
+<header><h1>样本</h1><span class="muted" id="count">0</span><button class="btn primary grow" id="addSample">+ 新样本</button></header>
+<div class="list" id="sampleList"></div>
+</section>
+<section class="col">
+<header>
+<h1>对话</h1>
+<button class="btn" id="addSystem">+ system</button>
+<button class="btn" id="addUser">+ user</button>
+<button class="btn" id="addAssistant">+ assistant</button>
+<button class="btn danger grow" id="deleteSample">删除样本</button>
+</header>
+<div class="turns" id="turns"></div>
+<div class="hint">推荐导出 JSONL messages，然后： <code>uv run python scripts/train.py --data xxx.jsonl --data-format jsonl</code></div>
+</section>
+<section class="col">
+
+<header><h1>API / ChatML</h1></header>
+<div class="gen">
+  <div class="row">
+    <label class="field">Base URL<input id="apiBase" value="http://127.0.0.1:8000/v1"/></label>
+    <label class="field">API Key<input id="apiKey" value="sk-local"/></label>
+    <label class="field">Model<input id="apiModel" placeholder="auto from /v1/models"/></label>
+  </div>
+  <label class="field">Prompt<textarea id="genPrompt" rows="3" placeholder="user prompt"></textarea></label>
+  <div class="row">
+    <label class="field">n<input id="genN" type="number" min="1" max="16" value="3"/></label>
+    <label class="field">temp<input id="genTemp" type="number" min="0" max="2" step="0.1" value="0.8"/></label>
+    <label class="field">max_tokens<input id="genMax" type="number" min="1" max="8192" value="512"/></label>
+    <label class="field" style="flex:0"><span>thinking</span><input id="genThink" type="checkbox"/></label>
+    <button class="btn primary" id="btnGen">Generate</button>
+    <button class="btn" id="btnMore">Again</button>
+    <button class="btn" id="btnClearCands">Clear</button>
+  </div>
+  <div class="status" id="genStatus"></div>
+</div>
+<div class="cands" id="cands"></div>
+<div class="toolbar">
+<button class="btn primary" id="exportJsonl">JSONL</button>
+<button class="btn" id="exportChatml">ChatML</button>
+<button class="btn" id="exportTxt">TXT</button>
+<button class="btn" id="importBtn">Import</button>
+<input id="fileInput" type="file" accept=".jsonl,.json,.txt,.chatml"/>
+</div>
+<pre id="preview"></pre>
+
+</section>
+</div>
+<script>
+const STORAGE_KEY = "llm-tools-chatml-dataset-v1";
+const I18N = {"title": "ChatML 训练集编辑器", "samples": "样本", "new": "+ 新样本", "dialog": "对话", "del": "删除样本", "preview": "ChatML 预览 / 导出", "jsonl": "导出 JSONL", "chatml": "导出 ChatML", "txt": "导出 TXT", "imp": "导入 JSONL", "hint1": "推荐导出 JSONL messages，然后：", "hint2": "数据只存在浏览器本地，不会上传。", "up": "上移", "down": "下移", "remove": "删除", "placeholder": "内容", "turns": "轮", "sample": "样本", "empty": "没有可导出的样本", "nopair": "没有成对的 user/assistant", "emptyfile": "空文件", "noparse": "没有解析到样本", "fail": "导入失败："};
+const state = {samples: [], active: 0};
+function emptySample() {return {messages: [{role: "user", content: ""}, {role: "assistant", content: ""}]};}
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.samples) && parsed.samples.length) {
+        state.samples = parsed.samples;
+        state.active = Math.min(parsed.active || 0, parsed.samples.length - 1);
+        return;
+      }
+    }
+  } catch (e) {}
+  state.samples = [emptySample()];
+  state.active = 0;
+}
+function save() {localStorage.setItem(STORAGE_KEY, JSON.stringify({samples: state.samples, active: state.active}));}
+function current() {return state.samples[state.active];}
+function toChatML(messages) {
+  return messages.map(m => "<|im_start|>" + m.role + "\n" + (m.content || "") + "<|im_end|>").join("\n") + "\n";
+}
+function sampleTitle(sample, idx) {
+  const user = (sample.messages || []).find(m => m.role === "user");
+  const text = ((user && user.content) || "").replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, 36) : (I18N.sample + " " + (idx + 1));
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function renderList() {
+  document.getElementById("count").textContent = String(state.samples.length);
+  document.getElementById("sampleList").innerHTML = state.samples.map((sample, i) =>
+    '<div class="card ' + (i === state.active ? "active" : "") + '" data-i="' + i + '"><div>' +
+    escapeHtml(sampleTitle(sample, i)) + '</div><div class="meta">' + (sample.messages || []).length +
+    " " + I18N.turns + " · " + (i + 1) + "/" + state.samples.length + "</div></div>"
+  ).join("");
+}
+function renderTurns() {
+  const sample = current();
+  document.getElementById("turns").innerHTML = sample.messages.map((m, i) =>
+    '<div class="turn"><div class="turn-head"><select data-role="' + i + '">' +
+    ["system","user","assistant"].map(r => '<option value="' + r + '"' + (m.role === r ? " selected" : "") + ">" + r + "</option>").join("") +
+    '</select><span class="role-' + m.role + '">' + m.role + '</span>' +
+    '<button class="btn grow" data-up="' + i + '">' + I18N.up + '</button>' +
+    '<button class="btn" data-down="' + i + '">' + I18N.down + '</button>' +
+    '<button class="btn danger" data-del="' + i + '">' + I18N.remove + '</button></div>' +
+    '<textarea data-content="' + i + '" placeholder="' + m.role + " " + I18N.placeholder + '">' +
+    escapeHtml(m.content || "") + "</textarea></div>"
+  ).join("");
+  renderPreview();
+}
+function renderPreview() {document.getElementById("preview").textContent = toChatML(current().messages || []);}
+function redraw() {save(); renderList(); renderTurns();}
+function validSamples() {return state.samples.filter(s => (s.messages || []).some(m => (m.content || "").trim()));}
+function download(name, text) {
+  const blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function exportJsonl() {
+  const lines = validSamples().map(s => JSON.stringify({messages: s.messages.filter(m => (m.content || "").trim())}));
+  if (!lines.length) return alert(I18N.empty);
+  download("chatml_dataset.jsonl", lines.join("\n") + "\n");
+}
+function exportChatml() {
+  const text = validSamples().map(s => toChatML(s.messages.filter(m => (m.content || "").trim()))).join("\n");
+  if (!text.trim()) return alert(I18N.empty);
+  download("chatml_dataset.chatml.txt", text);
+}
+function exportTxt() {
+  const chunks = [];
+  for (const sample of validSamples()) {
+    const msgs = sample.messages.filter(m => m.role !== "system" && (m.content || "").trim());
+    for (let i = 0; i + 1 < msgs.length; i += 2) {
+      if (msgs[i].role === "user" && msgs[i + 1].role === "assistant") {
+        chunks.push(msgs[i].content.trim(), msgs[i + 1].content.trim());
+      }
+    }
+  }
+  if (!chunks.length) return alert(I18N.nopair);
+  download("chatml_dataset.txt", chunks.join("\n") + "\n");
+}
+function normalizeMessages(row) {
+  const list = Array.isArray(row) ? row : (row.messages || row.conversations || []);
+  return list.map(item => ({
+    role: item.role || (item.from === "human" ? "user" : item.from === "gpt" ? "assistant" : item.from) || "user",
+    content: item.content || item.value || item.text || ""
+  }));
+}
+function parseImported(text, name) {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error(I18N.emptyfile);
+  if (name.endsWith(".jsonl") || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    const samples = [];
+    if (trimmed.startsWith("[")) {
+      for (const row of JSON.parse(trimmed)) samples.push({messages: normalizeMessages(row)});
+    } else {
+      for (const line of trimmed.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        samples.push({messages: normalizeMessages(JSON.parse(line))});
+      }
+    }
+    return samples;
+  }
+  if (trimmed.includes("<|im_start|>")) {
+    const out = [];
+    const re = /<\|im_start\|>(system|user|assistant)\n([\s\S]*?)<\|im_end\|>/g;
+    const messages = [];
+    let m;
+    while ((m = re.exec(trimmed))) messages.push({role: m[1], content: m[2].replace(/\n$/, "")});
+    if (messages.length) out.push({messages: messages});
+    return out;
+  }
+  const lines = trimmed.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith("#"));
+  const samples = [];
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    samples.push({messages: [{role: "user", content: lines[i]}, {role: "assistant", content: lines[i + 1]}]});
+  }
+  return samples;
+}
+document.getElementById("sampleList").addEventListener("click", e => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  state.active = Number(card.dataset.i);
+  redraw();
+});
+document.getElementById("addSample").onclick = () => {state.samples.push(emptySample()); state.active = state.samples.length - 1; redraw();};
+document.getElementById("deleteSample").onclick = () => {
+  if (state.samples.length <= 1) {current().messages = emptySample().messages; redraw(); return;}
+  state.samples.splice(state.active, 1);
+  state.active = Math.max(0, state.active - 1);
+  redraw();
+};
+function addTurn(role) {current().messages.push({role: role, content: ""}); redraw();}
+document.getElementById("addSystem").onclick = () => addTurn("system");
+document.getElementById("addUser").onclick = () => addTurn("user");
+document.getElementById("addAssistant").onclick = () => addTurn("assistant");
+document.getElementById("turns").addEventListener("input", e => {
+  const i = e.target.dataset.content;
+  if (i == null) return;
+  current().messages[Number(i)].content = e.target.value;
+  save();
+  renderPreview();
+});
+document.getElementById("turns").addEventListener("change", e => {
+  const i = e.target.dataset.role;
+  if (i == null) return;
+  current().messages[Number(i)].role = e.target.value;
+  redraw();
+});
+document.getElementById("turns").addEventListener("click", e => {
+  const msgs = current().messages;
+  if (e.target.dataset.del != null) {
+    const i = Number(e.target.dataset.del);
+    if (msgs.length <= 1) return;
+    msgs.splice(i, 1);
+    redraw();
+  }
+  if (e.target.dataset.up != null) {
+    const i = Number(e.target.dataset.up);
+    if (i <= 0) return;
+    const tmp = msgs[i - 1]; msgs[i - 1] = msgs[i]; msgs[i] = tmp;
+    redraw();
+  }
+  if (e.target.dataset.down != null) {
+    const i = Number(e.target.dataset.down);
+    if (i >= msgs.length - 1) return;
+    const tmp = msgs[i + 1]; msgs[i + 1] = msgs[i]; msgs[i] = tmp;
+    redraw();
+  }
+});
+document.getElementById("exportJsonl").onclick = exportJsonl;
+document.getElementById("exportChatml").onclick = exportChatml;
+document.getElementById("exportTxt").onclick = exportTxt;
+document.getElementById("importBtn").onclick = () => document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const samples = parseImported(await file.text(), file.name.toLowerCase());
+    if (!samples.length) throw new Error(I18N.noparse);
+    state.samples = samples;
+    state.active = 0;
+    redraw();
+  } catch (err) {
+    alert(I18N.fail + err.message);
+  }
+});
+
+const API_KEY = "llm-tools-chatml-api-v1";
+const candidates = [];
+function apiSettings(){
+  return {
+    base: document.getElementById("apiBase").value.trim().replace(/\/$/, ""),
+    key: document.getElementById("apiKey").value.trim(),
+    model: document.getElementById("apiModel").value.trim(),
+    n: Math.max(1, Number(document.getElementById("genN").value) || 1),
+    temp: Number(document.getElementById("genTemp").value),
+    max: Math.max(1, Number(document.getElementById("genMax").value) || 256),
+    think: document.getElementById("genThink").checked,
+    prompt: document.getElementById("genPrompt").value
+  };
+}
+function saveApi(){ localStorage.setItem(API_KEY, JSON.stringify(apiSettings())); }
+function loadApi(){
+  try{
+    const s = JSON.parse(localStorage.getItem(API_KEY) || "{}");
+    if(s.base) document.getElementById("apiBase").value = s.base;
+    if(s.key) document.getElementById("apiKey").value = s.key;
+    if(s.model) document.getElementById("apiModel").value = s.model;
+    if(s.n) document.getElementById("genN").value = s.n;
+    if(s.temp != null) document.getElementById("genTemp").value = s.temp;
+    if(s.max) document.getElementById("genMax").value = s.max;
+    document.getElementById("genThink").checked = !!s.think;
+    if(s.prompt) document.getElementById("genPrompt").value = s.prompt;
+  }catch(e){}
+}
+function setStatus(t){ document.getElementById("genStatus").textContent = t || ""; }
+function renderCands(){
+  const box = document.getElementById("cands");
+  if(!candidates.length){ box.innerHTML = '<div class="muted">Generate several replies, then add the best one.</div>'; return; }
+  box.innerHTML = candidates.map((c,i) =>
+    '<div class="cand"><div class="meta">#' + (i+1) + (c.error ? " error" : "") + '</div><pre>' +
+    escapeHtml(c.error || c.text || "") + '</pre>' +
+    (c.error ? "" : '<button class="btn primary" data-add="' + i + '">Add to dataset</button>') +
+    "</div>"
+  ).join("");
+}
+async function resolveModel(s){
+  if(s.model) return s.model;
+  const res = await fetch(s.base + "/models", {headers: s.key ? {Authorization: "Bearer " + s.key} : {}});
+  if(!res.ok) throw new Error("/v1/models HTTP " + res.status);
+  const data = await res.json();
+  const id = data.data && data.data[0] && data.data[0].id;
+  if(!id) throw new Error("no model id");
+  document.getElementById("apiModel").value = id;
+  return id;
+}
+async function generateOnce(s, model){
+  const body = {
+    model: model,
+    messages: [{role: "user", content: s.prompt.trim()}],
+    temperature: s.temp,
+    max_tokens: s.max,
+    stream: false,
+    enable_thinking: s.think,
+    chat_template_kwargs: {enable_thinking: s.think}
+  };
+  const res = await fetch(s.base + "/chat/completions", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...(s.key ? {Authorization: "Bearer " + s.key} : {})},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
+  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if(!text) throw new Error("empty content");
+  return text;
+}
+async function runGenerate(append){
+  const s = apiSettings();
+  saveApi();
+  if(!s.prompt.trim()) return alert("empty prompt");
+  if(!append) candidates.length = 0;
+  setStatus("generating...");
+  try{
+    const model = await resolveModel(s);
+    for(let i=0;i<s.n;i++){
+      setStatus("generating " + (i+1) + "/" + s.n);
+      try{
+        const text = await generateOnce(s, model);
+        candidates.push({prompt: s.prompt.trim(), text: text});
+      }catch(err){
+        candidates.push({prompt: s.prompt.trim(), error: String(err.message || err)});
+      }
+      renderCands();
+    }
+    setStatus("done " + candidates.filter(c=>c.text).length + " ok");
+  }catch(err){
+    setStatus(String(err.message || err));
+    alert(String(err.message || err));
+  }
+}
+function addCandidate(i){
+  const c = candidates[i];
+  if(!c || !c.text) return;
+  state.samples.push({messages: [{role: "user", content: c.prompt}, {role: "assistant", content: c.text}]});
+  state.active = state.samples.length - 1;
+  redraw();
+  setStatus("added sample #" + (state.active + 1));
+}
+document.getElementById("btnGen").onclick = () => runGenerate(false);
+document.getElementById("btnMore").onclick = () => runGenerate(true);
+document.getElementById("btnClearCands").onclick = () => {candidates.length=0; renderCands(); setStatus("");};
+document.getElementById("cands").addEventListener("click", e => {
+  const i = e.target.dataset.add;
+  if(i == null) return;
+  addCandidate(Number(i));
+});
+["apiBase","apiKey","apiModel","genN","genTemp","genMax","genThink","genPrompt"].forEach(id => {
+  document.getElementById(id).addEventListener("change", saveApi);
+});
+loadApi();
+renderCands();
+
+load();
+redraw();
+</script>
+</body>
+</html>

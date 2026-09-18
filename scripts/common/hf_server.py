@@ -27,8 +27,15 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: dict[str, Any]) -
     handler.send_response(code)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
+    _add_cors(handler)
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def _add_cors(handler: BaseHTTPRequestHandler) -> None:
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
 
 def accelerate_available() -> bool:
@@ -324,6 +331,11 @@ class OpenAIHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         LOGGER.info("%s - %s", self.address_string(), fmt % args)
 
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(204)
+        _add_cors(self)
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         if self.path.split("?", 1)[0] != "/v1/models":
             _json(self, 404, {"error": {"message": "not found"}})
@@ -380,6 +392,7 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.send_header("X-Accel-Buffering", "no")
+            _add_cors(self)
             self.end_headers()
             sent_role = False
             result = {"text": "", "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
