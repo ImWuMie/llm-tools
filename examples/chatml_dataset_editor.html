@@ -64,6 +64,17 @@ input[type=number]{width:72px;background:var(--panel2);border:1px solid var(--li
     <label class="field">API Key<input id="apiKey" value="sk-local"/></label>
     <label class="field">Model<input id="apiModel" placeholder="auto from /v1/models"/></label>
   </div>
+  <label class="field">Prompt source API (optional, empty = same as above)<input id="promptApiBase" placeholder="https://api.openai.com/v1 or leave empty"/></label>
+  <div class="row">
+    <label class="field">Prompt API Key<input id="promptApiKey" placeholder="empty = same key"/></label>
+    <label class="field">Prompt Model<input id="promptApiModel" placeholder="empty = same model"/></label>
+  </div>
+  <label class="field">Topic / instruction<textarea id="promptTopic" rows="2" placeholder="e.g. generate user questions about refunds"></textarea></label>
+  <div class="row">
+    <label class="field">prompt n<input id="promptN" type="number" min="1" max="30" value="8"/></label>
+    <button class="btn" id="btnPrompts">Make prompts</button>
+  </div>
+  <div id="promptList" class="cands" style="max-height:160px;min-height:0;padding:0 0 8px 0"></div>
   <label class="field">Prompt<textarea id="genPrompt" rows="3" placeholder="user prompt"></textarea></label>
   <div class="row">
     <label class="field">n<input id="genN" type="number" min="1" max="16" value="3"/></label>
@@ -296,7 +307,12 @@ function apiSettings(){
     temp: Number(document.getElementById("genTemp").value),
     max: Math.max(1, Number(document.getElementById("genMax").value) || 256),
     think: document.getElementById("genThink").checked,
-    prompt: document.getElementById("genPrompt").value
+    prompt: document.getElementById("genPrompt").value,
+    promptBase: document.getElementById("promptApiBase").value.trim().replace(/\/$/, ""),
+    promptKey: document.getElementById("promptApiKey").value.trim(),
+    promptModel: document.getElementById("promptApiModel").value.trim(),
+    topic: document.getElementById("promptTopic").value,
+    promptN: Math.max(1, Number(document.getElementById("promptN").value) || 8)
   };
 }
 function saveApi(){ localStorage.setItem(API_KEY, JSON.stringify(apiSettings())); }
@@ -311,6 +327,11 @@ function loadApi(){
     if(s.max) document.getElementById("genMax").value = s.max;
     document.getElementById("genThink").checked = !!s.think;
     if(s.prompt) document.getElementById("genPrompt").value = s.prompt;
+    if(s.promptBase) document.getElementById("promptApiBase").value = s.promptBase;
+    if(s.promptKey) document.getElementById("promptApiKey").value = s.promptKey;
+    if(s.promptModel) document.getElementById("promptApiModel").value = s.promptModel;
+    if(s.topic) document.getElementById("promptTopic").value = s.topic;
+    if(s.promptN) document.getElementById("promptN").value = s.promptN;
   }catch(e){}
 }
 function setStatus(t){ document.getElementById("genStatus").textContent = t || ""; }
@@ -360,6 +381,75 @@ async function generateOnce(s, model){
   if(!text) throw new Error("empty content");
   return text;
 }
+
+function parsePromptList(text){
+  const raw = String(text || "").trim();
+  if(!raw) return [];
+  try{
+    const parsed = JSON.parse(raw);
+    if(Array.isArray(parsed)) return parsed.map(x => typeof x === "string" ? x : (x.prompt || x.content || "")).filter(Boolean);
+    if(parsed && Array.isArray(parsed.prompts)) return parsed.prompts.filter(Boolean);
+  }catch(e){}
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if(fence){
+    try{
+      const parsed = JSON.parse(fence[1]);
+      if(Array.isArray(parsed)) return parsed.map(String);
+    }catch(e){}
+  }
+  return raw.split(/\r?\n/).map(s => s.replace(/^\s*\d+[\.\)]\s*/, "").replace(/^[-*]\s*/, "").trim()).filter(s => s && s.length > 1);
+}
+function renderPromptList(items){
+  const box = document.getElementById("promptList");
+  if(!items || !items.length){ box.innerHTML = ""; return; }
+  box.innerHTML = items.map(p => '<div class="cand" style="margin-bottom:6px"><div>' + escapeHtml(p) + '</div><button class="btn" data-prompt="' + encodeURIComponent(p) + '">Use</button></div>').join("");
+}
+async function chatCompletion(base, key, model, messages, extra){
+  const body = Object.assign({model: model, messages: messages, stream: false}, extra || {});
+  const res = await fetch(base + "/chat/completions", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...(key ? {Authorization: "Bearer " + key} : {})},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
+  const msg = data.choices && data.choices[0] && data.choices[0].message || {};
+  return msg;
+}
+async function runMakePrompts(){
+  const s = apiSettings();
+  saveApi();
+  if(!s.topic.trim()) return alert("empty topic");
+  setStatus("making prompts...");
+  try{
+    const base = s.promptBase || s.base;
+    const key = s.promptKey || s.key;
+    let model = s.promptModel;
+    if(!model){
+      if(s.promptBase && s.promptBase !== s.base){
+        const res = await fetch(base + "/models", {headers: key ? {Authorization: "Bearer " + key} : {}});
+        const data = await res.json();
+        model = data.data && data.data[0] && data.data[0].id;
+      } else {
+        model = await resolveModel(s);
+      }
+    }
+    if(!model) throw new Error("no prompt model");
+    const sys = "You write user prompts for a ChatML training set. Return ONLY a JSON array of strings. No markdown. Each item is one user message. Language follows the topic.";
+    const user = "Topic:\\n" + s.topic.trim() + "\\n\\nCount: " + s.promptN;
+    const msg = await chatCompletion(base, key, model, [{role:"system", content:sys},{role:"user", content:user}], {temperature: 0.9, max_tokens: 1024});
+    const items = parsePromptList(msg.content || "");
+    if(!items.length) throw new Error("no prompts parsed");
+    renderPromptList(items);
+    document.getElementById("genPrompt").value = items[0];
+    saveApi();
+    setStatus(items.length + " prompts ready, click one then Generate");
+  }catch(err){
+    setStatus(String(err.message || err));
+    alert(String(err.message || err));
+  }
+}
+
 async function runGenerate(append){
   const s = apiSettings();
   saveApi();
@@ -400,8 +490,17 @@ document.getElementById("cands").addEventListener("click", e => {
   if(i == null) return;
   addCandidate(Number(i));
 });
-["apiBase","apiKey","apiModel","genN","genTemp","genMax","genThink","genPrompt"].forEach(id => {
-  document.getElementById(id).addEventListener("change", saveApi);
+["apiBase","apiKey","apiModel","genN","genTemp","genMax","genThink","genPrompt","promptApiBase","promptApiKey","promptApiModel","promptTopic","promptN"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("change", saveApi);
+});
+document.getElementById("btnPrompts").onclick = runMakePrompts;
+document.getElementById("promptList").addEventListener("click", e => {
+  const p = e.target.dataset.prompt;
+  if (p == null) return;
+  document.getElementById("genPrompt").value = decodeURIComponent(p);
+  saveApi();
+  setStatus("prompt selected, click Generate");
 });
 loadApi();
 renderCands();
