@@ -143,6 +143,13 @@ class TrainSettings(BaseModel):
     report_to: str = "none"
     resume_from_checkpoint: str | None = None
     save_merged_model: bool = False
+    eval_strategy: str = "steps"
+    eval_steps: int = 10
+    eval_split: float = 0.1
+    per_device_eval_batch_size: int = 1
+    eval_data: str | None = None
+    load_best_model_at_end: bool = False
+    metric_for_best_model: str = "eval_loss"
     lora: LoraSettings = Field(default_factory=LoraSettings)
     quantization: QuantizationSettings = Field(default_factory=QuantizationSettings)
     data: DataSettings = Field(default_factory=DataSettings)

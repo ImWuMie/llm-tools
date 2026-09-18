@@ -12,6 +12,12 @@
   "seed": 42,
   "lr_scheduler_type": "cosine",
   "warmup_ratio": 0.03,
+  "eval_strategy": "steps",
+  "eval_steps": 10,
+  "eval_split": 0.1,
+  "per_device_eval_batch_size": 1,
+  "load_best_model_at_end": false,
+  "metric_for_best_model": "eval_loss",
   "lora": {
     "r": 8,
     "alpha": 16,

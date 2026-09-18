@@ -328,6 +328,8 @@ powershell -File scripts\wrappers\train.ps1 --data training\data\sample.txt --da
 | `--output-dir` | override `output_dir` |
 | `--resume-from-checkpoint` | path, or `auto` to pick the latest `checkpoint-*` |
 | `--update-env` | write `CHECKPOINT_PATH` / `ADAPTER_PATH` / `TRAINED_MODEL_MODE=lora` |
+| `--eval-data` | optional held-out file (same `--data-format`); logs HuggingFace `eval_loss` |
+| `--eval-split` | fraction of train data for eval (default `0.1` from config) |
 
 Converted samples are written to `training/data/processed/<stem>.jsonl` as:
 

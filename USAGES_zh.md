@@ -316,6 +316,8 @@ powershell -File scripts\wrappers\train.ps1 --data training\data\sample.txt --da
 | `--output-dir` | 覆盖 `output_dir` |
 | `--resume-from-checkpoint` | 路径，或 `auto` 选择最新的 `checkpoint-*` |
 | `--update-env` | 写入 `CHECKPOINT_PATH` / `ADAPTER_PATH` / `TRAINED_MODEL_MODE=lora` |
+| `--eval-data` | 可选验证集（同一 `--data-format`），训练中打 HuggingFace `eval_loss` |
+| `--eval-split` | 从训练集划出的验证比例，默认配置 `0.1` |
 
 转换后的样本写到 `training/data/processed/<stem>.jsonl`，格式为：
 

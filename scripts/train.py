@@ -38,6 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--update-env", action="store_true")
     parser.add_argument("--data-source", choices=["auto", "local", "hf", "modelscope"], default="auto")
     parser.add_argument("--data-split", default="train")
+    parser.add_argument("--eval-data", default=None, help="Optional held-out eval file (same --data-format).")
+    parser.add_argument("--eval-split", type=float, default=None, help="Fraction of train data used for eval_loss. Default from config (0.1).")
     return parser.parse_args()
 
 
@@ -80,7 +82,49 @@ def latest_checkpoint(output_dir: Path) -> Path | None:
     return checkpoints[-1] if checkpoints else None
 
 
-def build_trainer(model, tokenizer, dataset, training_cfg: dict[str, Any], output_dir: Path, lora_cfg, max_seq_length: int):
+def split_records(records: list[dict[str, Any]], eval_split: float, seed: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Hold out a shuffle split for HuggingFace-style eval_loss."""
+    import random
+
+    n = len(records)
+    if eval_split <= 0 or n < 2:
+        return records, []
+    n_eval = max(1, int(round(n * float(eval_split))))
+    n_eval = min(n_eval, n - 1)
+    indices = list(range(n))
+    random.Random(int(seed)).shuffle(indices)
+    eval_ids = set(indices[:n_eval])
+    train_records = [records[i] for i in range(n) if i not in eval_ids]
+    eval_records = [records[i] for i in range(n) if i in eval_ids]
+    return train_records, eval_records
+
+
+def resolve_eval_strategy(training_cfg: dict[str, Any], *, has_eval: bool) -> tuple[str, int]:
+    if not has_eval:
+        return "no", 0
+    strategy = str(
+        training_cfg.get("eval_strategy")
+        or training_cfg.get("evaluation_strategy")
+        or "steps"
+    ).strip().lower()
+    if strategy in {"", "none", "no", "false"}:
+        return "no", 0
+    if strategy not in {"steps", "epoch"}:
+        strategy = "steps"
+    eval_steps = int(training_cfg.get("eval_steps") or training_cfg.get("logging_steps") or 10)
+    return strategy, max(1, eval_steps)
+
+
+def build_trainer(
+    model,
+    tokenizer,
+    dataset,
+    training_cfg: dict[str, Any],
+    output_dir: Path,
+    lora_cfg,
+    max_seq_length: int,
+    eval_dataset=None,
+):
     from transformers import TrainerCallback, TrainingArguments
     from trl import SFTTrainer
 
@@ -93,16 +137,27 @@ def build_trainer(model, tokenizer, dataset, training_cfg: dict[str, Any], outpu
                     allocated = torch.cuda.memory_allocated() / 1024**3
                     reserved = torch.cuda.memory_reserved() / 1024**3
                     LOGGER.info(
-                        "step=%s loss=%s lr=%s gpu_alloc=%.2fGiB gpu_reserved=%.2fGiB",
+                        "step=%s loss=%s eval_loss=%s lr=%s gpu_alloc=%.2fGiB gpu_reserved=%.2fGiB",
                         state.global_step,
                         None if not logs else logs.get("loss"),
+                        None if not logs else logs.get("eval_loss"),
                         None if not logs else logs.get("learning_rate"),
                         allocated,
                         reserved,
                     )
+                elif logs and "eval_loss" in logs:
+                    LOGGER.info(
+                        "step=%s loss=%s eval_loss=%s lr=%s",
+                        state.global_step,
+                        logs.get("loss"),
+                        logs.get("eval_loss"),
+                        logs.get("learning_rate"),
+                    )
             except Exception:
                 return
 
+    has_eval = eval_dataset is not None
+    eval_strategy, eval_steps = resolve_eval_strategy(training_cfg, has_eval=has_eval)
     args_kwargs = dict(
         output_dir=str(output_dir),
         num_train_epochs=float(training_cfg.get("num_train_epochs", 3)),
@@ -121,7 +176,19 @@ def build_trainer(model, tokenizer, dataset, training_cfg: dict[str, Any], outpu
         lr_scheduler_type=str(training_cfg.get("lr_scheduler_type", "cosine")),
         warmup_ratio=float(training_cfg.get("warmup_ratio", 0.03)),
         logging_first_step=True,
+        eval_strategy=eval_strategy,
+        evaluation_strategy=eval_strategy,
+        eval_steps=eval_steps,
+        per_device_eval_batch_size=int(
+            training_cfg.get("per_device_eval_batch_size") or training_cfg.get("per_device_train_batch_size") or 1
+        ),
+        do_eval=has_eval and eval_strategy != "no",
+        load_best_model_at_end=bool(training_cfg.get("load_best_model_at_end", False)) and has_eval and eval_strategy != "no",
+        metric_for_best_model=str(training_cfg.get("metric_for_best_model") or "eval_loss"),
+        greater_is_better=bool(training_cfg.get("greater_is_better", False)),
     )
+    if eval_strategy != "steps":
+        args_kwargs.pop("eval_steps", None)
 
     trainer_kwargs_list: list[dict[str, Any]] = []
     try:
@@ -179,6 +246,9 @@ def build_trainer(model, tokenizer, dataset, training_cfg: dict[str, Any], outpu
 
     last_error: Exception | None = None
     for kwargs in trainer_kwargs_list:
+        if eval_dataset is not None:
+            kwargs = dict(kwargs)
+            kwargs["eval_dataset"] = eval_dataset
         try:
             trainer = SFTTrainer(**_filter_kwargs(SFTTrainer, kwargs))
             trainer.add_callback(GpuMemoryCallback())
@@ -336,7 +406,36 @@ def main() -> int:
 
         tokenizer = AutoTokenizer.from_pretrained(str(base_model), trust_remote_code=True)
         records = [{"messages": messages, "text": render_text(messages, tokenizer)} for messages in samples]
+        eval_records: list[dict[str, Any]] = []
+        eval_data = args.eval_data or train_cfg.get("eval_data")
+        if eval_data:
+            eval_samples, eval_processed = materialize_training_data(
+                str(eval_data),
+                data_format=args.data_format,
+                options=options,
+                project_root=PROJECT_ROOT,
+                source="local",
+                split=args.data_split,
+            )
+            eval_records = [{"messages": messages, "text": render_text(messages, tokenizer)} for messages in eval_samples]
+            LOGGER.info("Using dedicated eval file %s (%s samples)", eval_processed, len(eval_records))
+        else:
+            eval_split = args.eval_split
+            if eval_split is None:
+                eval_split = float(train_cfg.get("eval_split", 0.1))
+            train_records, eval_records = split_records(records, float(eval_split), int(train_cfg.get("seed", 42)))
+            if eval_records:
+                records = train_records
+                LOGGER.info(
+                    "Split train/eval for eval_loss: train=%s eval=%s (eval_split=%s)",
+                    len(records),
+                    len(eval_records),
+                    eval_split,
+                )
+            else:
+                LOGGER.info("eval_split=%s produced no eval split; eval_loss is disabled.", eval_split)
         dataset = Dataset.from_list(records)
+        eval_dataset = Dataset.from_list(eval_records) if eval_records else None
         model, tokenizer, peft_config = load_model_and_tokenizer(base_model, train_cfg)
         trainer = build_trainer(
             model=model,
@@ -346,6 +445,7 @@ def main() -> int:
             output_dir=output_dir,
             lora_cfg=peft_config,
             max_seq_length=int(train_cfg.get("max_seq_length", 2048)),
+            eval_dataset=eval_dataset,
         )
 
         resume = args.resume_from_checkpoint
