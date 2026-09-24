@@ -63,7 +63,7 @@ def cli_windows_backend(
 
 
 def resolve_infer_engine(config: AppConfig, model_path: Path, requested: str | None = None) -> str:
-    engine = (requested or config.get("INFER_ENGINE") or "auto").strip().lower()
+    engine = (requested or config.get("INFER_ENGINE") or "vllm").strip().lower()
     report = run_preflight(
         model_path,
         max_model_len=int(config.get("MAX_MODEL_LEN") or 4096),
@@ -76,14 +76,20 @@ def resolve_infer_engine(config: AppConfig, model_path: Path, requested: str | N
         raise VLLMLaunchError("Model failed preflight: " + "; ".join(report.problems))
     if engine not in {"auto", "vllm", "hf"}:
         raise VLLMLaunchError(f"Unknown INFER_ENGINE={engine}. Use auto / vllm / hf.")
-    if engine == "auto":
-        LOGGER.info("INFER_ENGINE=auto resolved to %s (model_type=%s)", report.engine_hint, report.model_type)
-        return report.engine_hint
-    if engine == "vllm" and report.engine_hint == "hf":
-        LOGGER.warning(
-            "INFER_ENGINE=vllm was requested, but this architecture looks custom. "
-            "If startup fails, rerun with --engine hf."
+    if engine in {"auto", "vllm"}:
+        LOGGER.info(
+            "INFER_ENGINE=%s forced to vllm (preflight hint=%s model_type=%s)",
+            engine,
+            report.engine_hint,
+            report.model_type,
         )
+        if report.engine_hint == "hf":
+            LOGGER.warning(
+                "Architecture looks custom (hint=%s), but startup is forced to vLLM. "
+                "Pass --engine hf only if you explicitly want the transformers fallback.",
+                report.engine_hint,
+            )
+        return "vllm"
     return engine
 
 
