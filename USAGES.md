@@ -40,7 +40,7 @@ uv sync --extra infer-hf --extra webui --extra eval
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes (Linux) | `train.py`, `merge_lora.py` |
 | `infer` | vllm (Linux marker) | `start_vllm.py` |
 | `infer-hf` | torch, transformers, peft, accelerate | `start_hf.py` / `--engine hf` |
-| infer-sglang | sglang (Linux) | start_sglang.py / --engine sglang |
+| infer-sglang | sglang (Linux, same .venv) | start_sglang.py / --engine sglang |
 | `webui` | gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | richer metrics |
 | `report` | tensorboard, wandb | training `report_to` |
@@ -261,6 +261,15 @@ does not count.
 ```bash
 # HF fallback (works without the plugin; needs CUDA torch in this env)
 uv sync --extra infer-hf
+
+SGLang uses the same .venv, but not together with vLLM. Switch stacks:
+
+`ash
+uv sync --directory overlays/sglang
+uv run python scripts/start_sglang.py --daemon
+uv sync --extra infer
+`
+
 uv run python scripts/start_vllm.py --daemon --engine hf
 
 # vLLM + Spark plugin (same interpreter as uv run)

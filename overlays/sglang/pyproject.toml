@@ -1,0 +1,12 @@
+# Overlay synced into the same .venv:
+#   uv sync --directory overlays/sglang
+# Do not combine with the main project's `infer` extra: SGLang and vLLM pin
+# different torch builds, so switching extras replaces one stack with the other.
+[project]
+name = "llm-tools-sglang"
+version = "0.1.0"
+description = "SGLang runtime overlay for llm-tools."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "sglang[all]>=0.5.3; sys_platform == 'linux'",
+]

@@ -74,6 +74,8 @@ KNOWN_ENV_PREFIXES = (
     "LICENSE_",
     "CONFIG_",
     "EVAL_",
+    "ENABLE_THINKING",
+    "SGLANG_",
 )
 
 

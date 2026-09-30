@@ -104,19 +104,27 @@ def build_sglang_command(
 
 
 def ensure_sglang_importable() -> None:
-    try:
-        import sglang  # noqa: F401
-    except Exception as exc:
-        hint = ""
-        if is_windows():
-            hint = (
-                "\nSGLang has no supported native Windows wheel. "
-                "Run this on Linux, or inside WSL2/Docker with `uv sync --extra infer-sglang`."
-            )
-        raise VLLMLaunchError(
-            "SGLang is not installed in this environment. On Linux run `uv sync --extra infer-sglang`."
-            f"{hint}\nImport error: {exc}"
-        ) from exc
+    import subprocess
+
+    completed = subprocess.run(
+        [current_python(), "-c", "import sglang.launch_server"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if completed.returncode == 0:
+        return
+    tail = (completed.stderr or completed.stdout or "").strip().splitlines()
+    detail = tail[-1][:400] if tail else "import failed"
+    raise VLLMLaunchError(
+        "SGLang is not installed in this environment. "
+        "vLLM and SGLang pin different torch builds, so switch the same .venv with:\n"
+        "  uv sync --directory overlays/sglang\n"
+        "Switch back to vLLM with `uv sync --extra infer`. "
+        f"Do not install both at once.\nImport error: {detail}"
+    )
 
 
 def _health_ok(host: str, port: int, api_key: str | None) -> bool:

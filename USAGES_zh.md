@@ -40,7 +40,7 @@ uv sync --extra infer-hf --extra webui --extra eval
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes（Linux） | `train.py`、`merge_lora.py` |
 | `infer` | vllm（仅 Linux marker） | `start_vllm.py` |
 | `infer-hf` | torch, transformers, peft, accelerate | `start_hf.py` / `--engine hf` |
-| infer-sglang | sglang (Linux) | start_sglang.py / --engine sglang |
+| infer-sglang | sglang（Linux，同一个 .venv） | start_sglang.py / --engine sglang |
 | `webui` | gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | 更完整的评测指标 |
 | `report` | tensorboard, wandb | 训练 `report_to` |
@@ -253,6 +253,15 @@ Python（常见为 3.12）、CUDA、GPU 架构必须与 wheel 一致。像 Spark
 
 ```bash
 uv sync --extra infer-hf
+
+SGLang 和 vLLM 用同一个 .venv，但不能同时装。切换：
+
+`ash
+uv sync --directory overlays/sglang
+uv run python scripts/start_sglang.py --daemon
+uv sync --extra infer
+`
+
 uv run python scripts/start_vllm.py --daemon --engine hf
 # 或
 uv run python scripts/start_hf.py --daemon
