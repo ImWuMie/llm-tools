@@ -40,6 +40,7 @@ uv sync --extra infer-hf --extra webui --extra eval
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes（Linux） | `train.py`、`merge_lora.py` |
 | `infer` | vllm（仅 Linux marker） | `start_vllm.py` |
 | `infer-hf` | torch, transformers, peft, accelerate | `start_hf.py` / `--engine hf` |
+| infer-sglang | sglang (Linux) | start_sglang.py / --engine sglang |
 | `webui` | gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | 更完整的评测指标 |
 | `report` | tensorboard, wandb | 训练 `report_to` |

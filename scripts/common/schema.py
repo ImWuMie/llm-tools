@@ -20,7 +20,7 @@ class EnvSettings(BaseModel):
     VLLM_HEALTH_TIMEOUT: float | None = None
     GPU_MEMORY_UTILIZATION: float | None = None
     VLLM_WINDOWS_BACKEND: Literal["auto", "wsl", "docker", "native", "fail"] | None = None
-    INFER_ENGINE: Literal["auto", "vllm", "hf"] | None = None
+    INFER_ENGINE: Literal["auto", "vllm", "hf", "sglang"] | None = None
     LICENSE_STRICT: bool | None = None
     CONFIG_STRICT: bool | None = None
 

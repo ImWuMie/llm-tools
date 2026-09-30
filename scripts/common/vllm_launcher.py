@@ -74,8 +74,11 @@ def resolve_infer_engine(config: AppConfig, model_path: Path, requested: str | N
         LOGGER.warning("%s", warning)
     if not report.ok:
         raise VLLMLaunchError("Model failed preflight: " + "; ".join(report.problems))
-    if engine not in {"auto", "vllm", "hf"}:
-        raise VLLMLaunchError(f"Unknown INFER_ENGINE={engine}. Use auto / vllm / hf.")
+    if engine not in {"auto", "vllm", "hf", "sglang"}:
+        raise VLLMLaunchError(f"Unknown INFER_ENGINE={engine}. Use auto / vllm / hf / sglang.")
+    if engine == "sglang":
+        LOGGER.info("INFER_ENGINE=sglang; dispatching to scripts/start_sglang.py")
+        return "sglang"
     if engine in {"auto", "vllm"}:
         LOGGER.info(
             "INFER_ENGINE=%s forced to vllm (preflight hint=%s model_type=%s)",
@@ -113,6 +116,33 @@ def launch_hf_fallback(
     if adapter_path is not None:
         cmd += ["--adapter-path", str(adapter_path)]
     LOGGER.info("Dispatching to transformers fallback: %s", " ".join(redact_command(cmd)))
+    completed = subprocess.run(cmd, cwd=str(PROJECT_ROOT), check=False)
+    return completed.returncode
+
+
+def launch_sglang(
+    config: AppConfig,
+    model_path: Path,
+    *,
+    daemon: bool,
+    service_name: str,
+    extra_args: list[str] | None = None,
+    trained: bool = False,
+) -> int:
+    cmd = [
+        current_python(),
+        str(PROJECT_ROOT / "scripts" / "start_sglang.py"),
+        "--daemon" if daemon else "--foreground",
+        "--model-dir",
+        str(model_path),
+        "--service-name",
+        "sglang" if service_name == "vllm" else service_name,
+    ]
+    if trained:
+        cmd.append("--trained")
+    if extra_args:
+        cmd += ["--", *extra_args]
+    LOGGER.info("Dispatching to SGLang: %s", " ".join(redact_command(cmd)))
     completed = subprocess.run(cmd, cwd=str(PROJECT_ROOT), check=False)
     return completed.returncode
 
@@ -337,6 +367,15 @@ def start_vllm_server(
             daemon=daemon,
             adapter_path=adapter,
             service_name=service_name,
+        )
+    if chosen_engine == "sglang":
+        return launch_sglang(
+            config,
+            model_path,
+            daemon=daemon,
+            service_name=service_name,
+            extra_args=extra_args,
+            trained=service_name != "vllm",
         )
 
     requested_backend = windows_backend or config.get("VLLM_WINDOWS_BACKEND") or "wsl"

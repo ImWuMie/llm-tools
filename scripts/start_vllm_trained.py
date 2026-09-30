@@ -28,7 +28,7 @@ def parse_args() -> argparse.Namespace:
         help="On Windows, use an already-installed community vLLM wheel in this Python env.",
     )
     parser.add_argument("--force-native", action="store_true")
-    parser.add_argument("--engine", choices=["auto", "vllm", "hf"], default=None)
+    parser.add_argument("--engine", choices=["auto", "vllm", "hf", "sglang"], default=None)
     parser.add_argument("extra", nargs=argparse.REMAINDER)
     return parser.parse_args()
 
