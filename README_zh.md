@@ -4,7 +4,7 @@
 
 - 依赖管理：[uv](https://docs.astral.sh/uv/)
 - 模型来源：Hugging Face 与 ModelScope，支持自动 fallback
-- 推理服务：[vLLM](https://docs.vllm.ai/) OpenAI 兼容 API
+- 推理：默认 [vLLM](https://docs.vllm.ai/) OpenAI 兼容 API。Linux 上可选 [SGLang](https://docs.sglang.io/)，共用同一个 `.venv`。只有 `--engine hf` 才走 transformers。
 - 训练：Hugging Face `transformers` / `datasets` / `peft` / `trl` / `accelerate`（LoRA / QLoRA）
 
 最低支持 **Windows 10+** 和 **Linux**。核心逻辑全部在 Python 里；`.sh` / `.ps1` 只是薄包装。
@@ -62,6 +62,7 @@ uv run python scripts\start_vllm.py --daemon --engine hf
 │   ├── download_model.py
 │   ├── start_vllm.py
 │   ├── start_vllm_trained.py
+│   ├── start_sglang.py     # Linux SGLang OpenAI 服务
 │   ├── stop_vllm.py
 │   ├── train.py
 │   ├── merge_lora.py
@@ -70,13 +71,16 @@ uv run python scripts\start_vllm.py --daemon --engine hf
 │   ├── install_vllm_windows.py
 │   ├── model_sources/        # HF / ModelScope 适配层
 │   └── wrappers/             # bash + PowerShell
+├── overlays/sglang/          # 把同一个 .venv 切到 SGLang
 ├── training/
 │   ├── config.json
 │   ├── system_prompt.txt     # 空文件 = 不插入 system message
 │   ├── data/sample.txt
 │   └── output/
 ├── models/base/
-├── examples/chat.py
+├── examples/
+│   ├── chat.py
+│   └── chatml_dataset_editor.html
 ├── tests/
 ├── Dockerfile
 └── docker-compose.yml
@@ -99,8 +103,8 @@ uv run python scripts\start_vllm.py --daemon --engine hf
 | *(默认)* | dotenv、openai、huggingface_hub、psutil | CLI、配置、调用示例 |
 | `download` | `hf_transfer`、`modelscope` | 模型下载 |
 | `train` | torch、transformers、peft、trl、accelerate | LoRA / QLoRA |
-| `infer` | vLLM（仅 Linux） | 推理服务 |
-| `infer-hf` | transformers 回退服务 | 自定义结构 / 原生 Windows |
+| `infer` | vLLM（仅 Linux） | 默认推理 |
+| `infer-hf` | transformers 回退服务 | 仅 `--engine hf` |
 | `webui` | Gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | 更完整的 `eval.py` 指标 |
 | `report` | tensorboard, wandb | 训练 `report_to` |
@@ -113,6 +117,16 @@ uv sync --extra download --extra train --extra infer   # Linux / WSL / Docker
 uv sync --extra download --extra dev
 uv sync --extra infer-hf --extra webui --extra eval
 ```
+
+
+SGLang 和 vLLM 锁定了不同的 torch 构建，不能同时安装。切换同一个 `.venv`：
+
+```bash
+uv sync --directory overlays/sglang   # Linux SGLang
+uv sync --extra infer                 # 切回 vLLM
+```
+
+不要再使用已经删除的 `infer-sglang` extra。`uv sync --extra infer-sglang` 会装上不完整的依赖，并卸掉 vLLM。
 
 如果 `modelscope` 与 torch / vLLM 冲突，请把下载放到独立环境，或用 Docker 跑推理和训练。
 

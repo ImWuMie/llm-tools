@@ -40,7 +40,7 @@ uv sync --extra infer-hf --extra webui --extra eval
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes (Linux) | `train.py`, `merge_lora.py` |
 | `infer` | vllm (Linux marker) | `start_vllm.py` |
 | `infer-hf` | torch, transformers, peft, accelerate | `start_hf.py` / `--engine hf` |
-| infer-sglang | sglang (Linux, same .venv) | start_sglang.py / --engine sglang |
+| *(overlay)* | `overlays/sglang` (Linux, same `.venv`) | `start_sglang.py` / `--engine sglang` |
 | `webui` | gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | richer metrics |
 | `report` | tensorboard, wandb | training `report_to` |
@@ -251,26 +251,35 @@ Match Python (often 3.12), CUDA, and GPU arch to the wheel. Custom architectures
 
 ---
 
-## 4.2 Transformers fallback / export / WebUI
+## 4.2 SGLang (Linux, same virtualenv)
 
-Stock vLLM does **not** know `Spark2_5ForCausalLM`. `INFER_ENGINE=auto` therefore picks
-the transformers server **unless** the Spark vLLM plugin is installed in **this**
-`.venv` (`uv run` interpreter). Installing the plugin in AutoDL system/conda Python
-does not count.
+vLLM and SGLang pin different torch builds, so they cannot be installed together. There is one `.venv`. Switch it:
 
 ```bash
-# HF fallback (works without the plugin; needs CUDA torch in this env)
-uv sync --extra infer-hf
-
-SGLang uses the same .venv, but not together with vLLM. Switch stacks:
-
-`ash
 uv sync --directory overlays/sglang
-uv run python scripts/start_sglang.py --daemon
-uv sync --extra infer
-`
+uv run python scripts/start_vllm.py --daemon --engine sglang
+# or: uv run python scripts/start_sglang.py --daemon
+uv run python scripts/stop_vllm.py --service sglang
+uv sync --extra infer   # switch this .venv back to vLLM
+```
 
+SGLang reuses `VLLM_HOST`, `VLLM_PORT`, `VLLM_API_KEY`, `MAX_MODEL_LEN`, and `GPU_MEMORY_UTILIZATION`. Optional parsers: `SGLANG_TOOL_CALL_PARSER` (falls back to `VLLM_TOOL_CALL_PARSER`) and `SGLANG_REASONING_PARSER`. Extra args after `--` go to `sglang.launch_server`. LoRA: `uv run python scripts/start_sglang.py --daemon --trained`.
+
+Logs and PID: `logs/sglang.log`, `run/sglang.pid`. Native Windows SGLang is not supported; use Linux, WSL2, or Docker. Do not run `uv sync --extra infer-sglang` (that extra was removed and installed a broken `sglang==0.5.2`).
+
+---
+
+## 4.3 Transformers fallback / export / WebUI
+
+Default `INFER_ENGINE=vllm`. `auto` and an empty value are also forced to vLLM. Only `--engine hf` (or `INFER_ENGINE=hf`) starts the transformers server. A custom architecture warning does **not** switch engines.
+
+Spark still needs the plugin inside this `uv run` interpreter. A system or conda install is ignored.
+
+```bash
+# transformers fallback
+uv sync --extra infer-hf
 uv run python scripts/start_vllm.py --daemon --engine hf
+uv run python scripts/stop_vllm.py --service hf
 
 # vLLM + Spark plugin (same interpreter as uv run)
 uv sync --extra infer
@@ -278,9 +287,6 @@ uv pip install git+https://github.com/XHToken/Spark-plugin
 uv run python scripts/start_vllm.py --daemon --engine vllm -- --enable-auto-tool-choice --tool-call-parser spark25
 uv run python scripts/stop_vllm.py
 ```
-
-`INFER_ENGINE=auto` picks vLLM when `model_type` looks supported **or** a matching
-out-of-tree plugin is visible in this env; otherwise `hf`.
 
 `logs/vllm.log` is truncated on every start. Server stdout/stderr are teed live to the console and that log file.
 
@@ -340,6 +346,14 @@ powershell -File scripts\wrappers\train.ps1 --data training\data\sample.txt --da
 | `--update-env` | write `CHECKPOINT_PATH` / `ADAPTER_PATH` / `TRAINED_MODEL_MODE=lora` |
 | `--eval-data` | optional held-out file (same `--data-format`); logs HuggingFace `eval_loss` |
 | `--eval-split` | fraction of train data for eval (default `0.1` from config) |
+
+Hub datasets: pass an `org/name` id with `--data-source hf` or `--data-source modelscope` (needs `uv sync --extra download`). `auto` uses a local file when the path exists, otherwise tries the hub id.
+
+```bash
+uv run python scripts/train.py --data org/name --data-source modelscope --data-format jsonl
+```
+
+ChatML editor (local only, no extra server): open `examples/chatml_dataset_editor.html` in a browser. It keeps drafts in `localStorage`, imports and exports JSONL / ChatML / txt, can call a second OpenAI-compatible API to draft prompts, and stores thinking as `<think>` text.
 
 Converted samples are written to `training/data/processed/<stem>.jsonl` as:
 

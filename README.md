@@ -4,7 +4,7 @@ Cross-platform toolchain for **downloading**, **serving**, **fine-tuning**, and 
 
 - Package manager: [uv](https://docs.astral.sh/uv/)
 - Download sources: Hugging Face and ModelScope, with automatic fallback
-- Serving: [vLLM](https://docs.vllm.ai/) OpenAI-compatible API
+- Serving: [vLLM](https://docs.vllm.ai/) OpenAI-compatible API by default. Optional Linux [SGLang](https://docs.sglang.io/) uses the same `.venv`. `--engine hf` is the transformers fallback.
 - Training: Hugging Face `transformers` / `datasets` / `peft` / `trl` / `accelerate` (LoRA / QLoRA)
 
 Minimum platforms: **Windows 10+** and **Linux**. Core logic is Python; `.sh` / `.ps1` files are thin wrappers.
@@ -62,6 +62,7 @@ See [USAGES.md](USAGES.md) for every command, flag, and environment variable. Ch
 │   ├── download_model.py
 │   ├── start_vllm.py
 │   ├── start_vllm_trained.py
+│   ├── start_sglang.py     # Linux SGLang OpenAI server
 │   ├── stop_vllm.py
 │   ├── train.py
 │   ├── merge_lora.py
@@ -70,13 +71,16 @@ See [USAGES.md](USAGES.md) for every command, flag, and environment variable. Ch
 │   ├── install_vllm_windows.py
 │   ├── model_sources/        # HF / ModelScope adapters
 │   └── wrappers/             # bash + PowerShell
+├── overlays/sglang/          # switch the same .venv onto SGLang
 ├── training/
 │   ├── config.json
 │   ├── system_prompt.txt     # empty = no system message
 │   ├── data/sample.txt
 │   └── output/
 ├── models/base/
-├── examples/chat.py
+├── examples/
+│   ├── chat.py
+│   └── chatml_dataset_editor.html
 ├── tests/
 ├── Dockerfile
 └── docker-compose.yml
@@ -99,8 +103,8 @@ Tokens (`HF_TOKEN`, `MODELSCOPE_API_TOKEN`, `VLLM_API_KEY`) are never printed in
 | *(default)* | dotenv, openai, huggingface_hub, psutil | CLI, env, client examples |
 | `download` | `hf_transfer`, `modelscope` | model download |
 | `train` | torch, transformers, peft, trl, accelerate | LoRA / QLoRA |
-| `infer` | vLLM (Linux only) | serving |
-| `infer-hf` | transformers fallback server | custom architectures / native Windows |
+| `infer` | vLLM (Linux only) | default serving |
+| `infer-hf` | transformers fallback server | only with `--engine hf` |
 | `webui` | Gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | richer `eval.py` metrics |
 | `report` | tensorboard, wandb | training `report_to` |
@@ -113,6 +117,16 @@ uv sync --extra download --extra train --extra infer   # Linux / WSL / Docker
 uv sync --extra download --extra dev
 uv sync --extra infer-hf --extra webui --extra eval
 ```
+
+
+SGLang and vLLM pin different torch builds, so they are not installed together. Switch the same `.venv`:
+
+```bash
+uv sync --directory overlays/sglang   # Linux SGLang
+uv sync --extra infer                 # back to vLLM
+```
+
+Do not use a removed `infer-sglang` extra. `uv sync --extra infer-sglang` installs a broken stack and removes vLLM.
 
 If `modelscope` conflicts with torch / vLLM, keep download in a dedicated environment or use Docker for infer/train.
 

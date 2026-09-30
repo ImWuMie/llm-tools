@@ -40,7 +40,7 @@ uv sync --extra infer-hf --extra webui --extra eval
 | `train` | torch, transformers, datasets, peft, trl, accelerate, bitsandbytes（Linux） | `train.py`、`merge_lora.py` |
 | `infer` | vllm（仅 Linux marker） | `start_vllm.py` |
 | `infer-hf` | torch, transformers, peft, accelerate | `start_hf.py` / `--engine hf` |
-| infer-sglang | sglang（Linux，同一个 .venv） | start_sglang.py / --engine sglang |
+| *(overlay)* | `overlays/sglang`（Linux，同一个 `.venv`） | `start_sglang.py` / `--engine sglang` |
 | `webui` | gradio | `examples/webui.py` |
 | `eval` | sacrebleu, rouge-score | 更完整的评测指标 |
 | `report` | tensorboard, wandb | 训练 `report_to` |
@@ -221,12 +221,12 @@ uv run python scripts/stop_vllm.py --pid-file run/vllm.pid --timeout 20
 
 建议用独立的 Python 3.12 环境（例如 .venv-vllm-win），避免非官方 wheel 和 uv sync --extra train 混装。
 
-`powershell
+```powershell
 uv run python scripts\install_vllm_windows.py --check
 uv run python scripts\install_vllm_windows.py --install --wheel-url <whl-url> --yes --write-env
 uv run python scripts\start_vllm.py --daemon --native
 uv run python scripts\start_vllm_trained.py --daemon --native
-`
+```
 
 --install 会自动加上 PyTorch cu130 extra index（uv 使用 --index-strategy unsafe-best-match）。
 原生启动还会：
@@ -247,28 +247,42 @@ Python（常见为 3.12）、CUDA、GPU 架构必须与 wheel 一致。像 Spark
 
 ---
 
-## 4.2 Transformers 回退 / 量化导出 / WebUI
+## 4.2 SGLang（Linux，同一个虚拟环境）
 
-自定义结构（例如 `Spark2_5ForCausalLM`）请走 transformers 服务：
+vLLM 和 SGLang 锁定了不同的 torch 构建，不能同时安装。只有一个 `.venv`，用 sync 切换：
 
 ```bash
-uv sync --extra infer-hf
-
-SGLang 和 vLLM 用同一个 .venv，但不能同时装。切换：
-
-`ash
 uv sync --directory overlays/sglang
-uv run python scripts/start_sglang.py --daemon
-uv sync --extra infer
-`
-
-uv run python scripts/start_vllm.py --daemon --engine hf
-# 或
-uv run python scripts/start_hf.py --daemon
-uv run python scripts/stop_vllm.py --service hf
+uv run python scripts/start_vllm.py --daemon --engine sglang
+# 或：uv run python scripts/start_sglang.py --daemon
+uv run python scripts/stop_vllm.py --service sglang
+uv sync --extra infer   # 把这个 .venv 切回 vLLM
 ```
 
-`INFER_ENGINE=auto` 在本环境能识别模型类型或 Spark plugin 时走 vLLM，否则走 `hf`。plugin 必须装进 `uv run` 的 `.venv`，装在 AutoDL 系统 Python 里不生效。
+SGLang 复用 `VLLM_HOST`、`VLLM_PORT`、`VLLM_API_KEY`、`MAX_MODEL_LEN` 和 `GPU_MEMORY_UTILIZATION`。可选解析器：`SGLANG_TOOL_CALL_PARSER`（空则回退到 `VLLM_TOOL_CALL_PARSER`）和 `SGLANG_REASONING_PARSER`。`--` 后面的参数会传给 `sglang.launch_server`。LoRA：`uv run python scripts/start_sglang.py --daemon --trained`。
+
+日志和 PID：`logs/sglang.log`、`run/sglang.pid`。不支持原生 Windows SGLang，请用 Linux、WSL2 或 Docker。不要执行 `uv sync --extra infer-sglang`（这个 extra 已删除，之前会装上缺依赖的 `sglang==0.5.2` 并卸掉 vLLM）。
+
+---
+
+## 4.3 Transformers 回退 / 量化导出 / WebUI
+
+默认 `INFER_ENGINE=vllm`。`auto` 和空值也会强制走 vLLM。只有 `--engine hf`（或 `INFER_ENGINE=hf`）才启动 transformers 服务。自定义结构的预检警告**不会**自动换引擎。
+
+Spark 仍然要把 plugin 装进当前 `uv run` 的解释器。装在系统或 conda Python 里不生效。
+
+```bash
+# transformers 回退
+uv sync --extra infer-hf
+uv run python scripts/start_vllm.py --daemon --engine hf
+uv run python scripts/stop_vllm.py --service hf
+
+# vLLM + Spark plugin（必须是 uv run 这个解释器）
+uv sync --extra infer
+uv pip install git+https://github.com/XHToken/Spark-plugin
+uv run python scripts/start_vllm.py --daemon --engine vllm -- --enable-auto-tool-choice --tool-call-parser spark25
+uv run python scripts/stop_vllm.py
+```
 
 每次启动会清空 `logs/vllm.log`。服务进程的 stdout/stderr 会实时 tee 到控制台和该日志文件。
 
@@ -328,6 +342,14 @@ powershell -File scripts\wrappers\train.ps1 --data training\data\sample.txt --da
 | `--update-env` | 写入 `CHECKPOINT_PATH` / `ADAPTER_PATH` / `TRAINED_MODEL_MODE=lora` |
 | `--eval-data` | 可选验证集（同一 `--data-format`），训练中打 HuggingFace `eval_loss` |
 | `--eval-split` | 从训练集划出的验证比例，默认配置 `0.1` |
+
+数据集仓库：`--data` 传 `org/name` 这种 id，并用 `--data-source hf` 或 `--data-source modelscope`（需要 `uv sync --extra download`）。`auto` 在路径存在时读本地文件，否则按 hub id 尝试。
+
+```bash
+uv run python scripts/train.py --data org/name --data-source modelscope --data-format jsonl
+```
+
+ChatML 编辑器（只在浏览器里，不另起服务）：打开 `examples/chatml_dataset_editor.html`。草稿保存在 `localStorage` 里，可以导入/导出 JSONL、ChatML 和 txt；也可以调第二个 OpenAI 兼容 API 来起提示词；thinking 会按 `<think>` 文本保留。
 
 转换后的样本写到 `training/data/processed/<stem>.jsonl`，格式为：
 
